@@ -14,9 +14,9 @@
   "dependencies": {
     "@clerk/nextjs": "^6.10.2",
     "@pa/shared-types": "workspace:*",
-    "next": "15.1.4",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "next": "^15.2.3",
+    "react": "^19.0.3",
+    "react-dom": "^19.0.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -24,7 +24,7 @@
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "eslint": "^9.18.0",
-    "eslint-config-next": "15.1.4",
+    "eslint-config-next": "^15.2.3",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"
   }

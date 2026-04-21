@@ -1,4 +1,4 @@
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyError, type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { env } from "./env.js";
 import { Sentry } from "./tracing.js";
 import { healthRoutes } from "./routes/health.js";
@@ -15,7 +15,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     disableRequestLogging: env.NODE_ENV === "test",
   });
 
-  app.setErrorHandler((err, req, reply) => {
+  app.setErrorHandler((err: FastifyError, req: FastifyRequest, reply: FastifyReply) => {
     req.log.error({ err }, "request failed");
     if (env.SENTRY_DSN) Sentry.captureException(err);
     reply.status(err.statusCode ?? 500).send({
