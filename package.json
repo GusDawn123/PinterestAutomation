@@ -1,0 +1,24 @@
+{
+  "name": "pinterest-automation",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Agentic workflow automation for Carmen's Pinterest blog business",
+  "engines": {
+    "node": ">=20.10.0",
+    "pnpm": ">=9"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "up": "docker compose up -d",
+    "down": "docker compose down",
+    "logs": "docker compose logs -f"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
