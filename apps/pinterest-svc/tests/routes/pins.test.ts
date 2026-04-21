@@ -79,15 +79,15 @@ describe("POST /workflows/:id/pins/start", () => {
 
     const approvalPayload = mock.approvals.create.mock.calls[0]![0] as {
       kind: string;
-      payload: { pins: Array<{ composedImageUrl: string; needsManualUpload?: boolean; sourceImageUrl: string }> };
+      payload: { pins: Array<{ composedImageUrl: string; needsManualCompose?: boolean; sourceImageUrl: string }> };
     };
     expect(approvalPayload.kind).toBe("pins");
     expect(approvalPayload.payload.pins).toHaveLength(2);
     expect(approvalPayload.payload.pins[0]!.composedImageUrl).toBe("");
-    expect(approvalPayload.payload.pins[0]!.needsManualUpload).toBe(true);
+    expect(approvalPayload.payload.pins[0]!.needsManualCompose).toBe(true);
     expect(approvalPayload.payload.pins[0]!.sourceImageUrl).toBe("https://cdn.example.com/a.png");
     expect(approvalPayload.payload.pins[1]!.composedImageUrl).toBe("");
-    expect(approvalPayload.payload.pins[1]!.needsManualUpload).toBe(true);
+    expect(approvalPayload.payload.pins[1]!.needsManualCompose).toBe(true);
   });
 
   it("400s when no chosen images", async () => {
@@ -258,7 +258,7 @@ describe("POST /workflows/:id/pins/decide", () => {
               pinIndex: 0,
               sourceImageUrl: "https://cdn.example.com/a.png",
               composedImageUrl: "",
-              needsManualUpload: true,
+              needsManualCompose: true,
               variations: [{ title: "T", description: "D" }],
             },
           ],

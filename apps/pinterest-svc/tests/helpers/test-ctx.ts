@@ -8,6 +8,7 @@ import type { RecommenderService } from "../../src/services/recommender.js";
 import type { PinterestClient } from "../../src/clients/pinterest.js";
 import type { AnthropicClient } from "../../src/clients/anthropic.js";
 import type { WordpressClient } from "../../src/clients/wordpress.js";
+import type { IdeogramClient } from "../../src/clients/ideogram.js";
 import type { UndetectableClient } from "../../src/clients/undetectable.js";
 import type { ExifStripper } from "../../src/exif.js";
 import type { Alerter } from "../../src/alerting.js";
@@ -25,6 +26,7 @@ export interface MockCtx {
   pinsQueue: Mocked<PinsQueueService>;
   analytics: Mocked<AnalyticsService>;
   recommender: Mocked<RecommenderService>;
+  ideogram: Mocked<IdeogramClient>;
   pinterest: Mocked<PinterestClient>;
   anthropic: Mocked<AnthropicClient>;
   wordpress: Mocked<WordpressClient>;
@@ -83,6 +85,11 @@ export function makeMockCtx(): MockCtx {
     nextSlotFor: vi.fn(),
   } as unknown as Mocked<RecommenderService>;
 
+  const ideogram = {
+    isConfigured: vi.fn().mockReturnValue(true),
+    generate: vi.fn(),
+  } as unknown as Mocked<IdeogramClient>;
+
   const pinterest = {
     getAccessToken: vi.fn(),
     getTrendingKeywords: vi.fn(),
@@ -125,7 +132,7 @@ export function makeMockCtx(): MockCtx {
   const getAffiliateQueriesPrompt = vi.fn().mockResolvedValue("affiliate queries prompt");
   const downloadImage = vi
     .fn()
-    .mockResolvedValue({ data: Buffer.from([1, 2, 3]), contentType: "image/png" });
+    .mockResolvedValue({ data: Buffer.from([0xff, 0xd8, 0xff, 0xd9]), contentType: "image/jpeg" });
 
   const ctx: ServiceContext = {
     db: {} as ServiceContext["db"],
@@ -134,6 +141,7 @@ export function makeMockCtx(): MockCtx {
     pinsQueue: pinsQueue as unknown as PinsQueueService,
     analytics: analytics as unknown as AnalyticsService,
     recommender: recommender as unknown as RecommenderService,
+    ideogram: ideogram as unknown as IdeogramClient,
     pinterest: pinterest as unknown as PinterestClient,
     anthropic: anthropic as unknown as AnthropicClient,
     wordpress: wordpress as unknown as WordpressClient,
@@ -155,6 +163,7 @@ export function makeMockCtx(): MockCtx {
     pinsQueue,
     analytics,
     recommender,
+    ideogram,
     pinterest,
     anthropic,
     wordpress,

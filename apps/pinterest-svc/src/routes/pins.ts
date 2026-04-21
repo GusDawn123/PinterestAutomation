@@ -87,7 +87,7 @@ export async function pinRoutes(app: FastifyInstance, opts: { ctx: ServiceContex
         sourceImageUrl: img.imageUrl,
         composedImageUrl: "",
         variations: copy.variations,
-        needsManualUpload: true,
+        needsManualCompose: true,
       });
     }
 
@@ -196,7 +196,7 @@ export async function pinRoutes(app: FastifyInstance, opts: { ctx: ServiceContex
           ? {
               ...p,
               composedImageUrl: uploaded.sourceUrl,
-              needsManualUpload: false,
+              needsManualCompose: false,
             }
           : p,
       ),

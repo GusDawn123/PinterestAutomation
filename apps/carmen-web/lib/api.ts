@@ -22,7 +22,7 @@ import type {
   WorkflowRun,
 } from "@pa/shared-types";
 
-const BASE = process.env.NEXT_PUBLIC_PINTEREST_SVC_URL ?? "http://localhost:3001";
+const BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
 
 export async function fetchSvc<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
@@ -77,20 +77,11 @@ export const api = {
       { method: "POST" },
     ),
 
-  uploadImage: async (workflowRunId: string, slotPosition: number, file: File) => {
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch(
-      `${BASE}/workflows/${workflowRunId}/images/${slotPosition}/upload`,
-      { method: "POST", body: form, cache: "no-store" },
-    );
-    if (!res.ok) {
-      throw new Error(
-        `pinterest-svc /images/${slotPosition}/upload ${res.status}: ${await res.text()}`,
-      );
-    }
-    return (await res.json()) as { slot: ImageSlotDraft };
-  },
+  regenerateImage: (workflowRunId: string, slotPosition: number) =>
+    fetchSvc<{ slot: ImageSlotDraft }>(
+      `/workflows/${workflowRunId}/images/${slotPosition}/regenerate`,
+      { method: "POST" },
+    ),
 
   decideImages: (workflowRunId: string, decision: ImagesApprovalDecision) =>
     fetchSvc<{ workflowRunId: string; chosenImages: unknown[] }>(

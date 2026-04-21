@@ -4,6 +4,7 @@ import type { WorkflowService } from "./services/workflow.js";
 import type { PinsQueueService } from "./services/pins-queue.js";
 import type { AnalyticsService } from "./services/analytics.js";
 import type { RecommenderService } from "./services/recommender.js";
+import type { IdeogramClient } from "./clients/ideogram.js";
 import type { PinterestClient } from "./clients/pinterest.js";
 import type { AnthropicClient } from "./clients/anthropic.js";
 import type { WordpressClient } from "./clients/wordpress.js";
@@ -18,6 +19,7 @@ export interface ServiceContext {
   pinsQueue: PinsQueueService;
   analytics: AnalyticsService;
   recommender: RecommenderService;
+  ideogram: IdeogramClient;
   pinterest: PinterestClient;
   anthropic: AnthropicClient;
   wordpress: WordpressClient;

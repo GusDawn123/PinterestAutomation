@@ -32,14 +32,14 @@ function makeApprovalWithEmptyPin(): Record<string, unknown> {
           pinIndex: 0,
           sourceImageUrl: "https://cdn.example.com/a.png",
           composedImageUrl: "",
-          needsManualUpload: true,
+          needsManualCompose: true,
           variations: [{ title: "Pin one", description: "D" }],
         },
         {
           pinIndex: 1,
           sourceImageUrl: "https://cdn.example.com/b.png",
           composedImageUrl: "",
-          needsManualUpload: true,
+          needsManualCompose: true,
           variations: [{ title: "Pin two", description: "D2" }],
         },
       ],
@@ -94,11 +94,11 @@ describe("POST /workflows/:id/pins/:pinIndex/upload", () => {
 
     expect(res.statusCode).toBe(200);
     const body = res.json() as {
-      pin: { composedImageUrl: string; needsManualUpload: boolean; pinIndex: number };
+      pin: { composedImageUrl: string; needsManualCompose: boolean; pinIndex: number };
     };
     expect(body.pin.pinIndex).toBe(0);
     expect(body.pin.composedImageUrl).toBe("https://wp.example.com/pin-0.jpg");
-    expect(body.pin.needsManualUpload).toBe(false);
+    expect(body.pin.needsManualCompose).toBe(false);
 
     expect(mock.wordpress.uploadMedia).toHaveBeenCalledTimes(1);
     const uploadArg = mock.wordpress.uploadMedia.mock.calls[0]![0] as {
@@ -112,9 +112,9 @@ describe("POST /workflows/:id/pins/:pinIndex/upload", () => {
     const [, updatedPayload] = mock.approvals.updatePayload.mock.calls[0]!;
     const updatedPins = (updatedPayload as PinsApprovalPayload).pins;
     expect(updatedPins[0]!.composedImageUrl).toBe("https://wp.example.com/pin-0.jpg");
-    expect(updatedPins[0]!.needsManualUpload).toBe(false);
+    expect(updatedPins[0]!.needsManualCompose).toBe(false);
     expect(updatedPins[1]!.composedImageUrl).toBe("");
-    expect(updatedPins[1]!.needsManualUpload).toBe(true);
+    expect(updatedPins[1]!.needsManualCompose).toBe(true);
   });
 
   it("400s when the requested pinIndex does not exist in the approval", async () => {

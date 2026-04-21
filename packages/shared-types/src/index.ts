@@ -35,8 +35,8 @@ export const ImageSlotDraftSchema = z.object({
   slotPosition: z.number().int().nonnegative(),
   promptHint: z.string(),
   altTextSuggestion: z.string().optional(),
-  uploadedImageUrl: z.string().default(""),
-  needsManualUpload: z.boolean().default(true),
+  generatedImageUrl: z.string().default(""),
+  ideogramSeed: z.number().int().optional(),
 });
 export type ImageSlotDraft = z.infer<typeof ImageSlotDraftSchema>;
 
@@ -211,7 +211,7 @@ export const ComposedPinSchema = z.object({
   sourceImageUrl: z.string().url(),
   composedImageUrl: z.string().default(""),
   variations: z.array(PinCopyVariationSchema).min(1).max(5),
-  needsManualUpload: z.boolean().optional(),
+  needsManualCompose: z.boolean().optional(),
 });
 export type ComposedPin = z.infer<typeof ComposedPinSchema>;
 

@@ -19,6 +19,7 @@ beforeEach(() => {
   mock.anthropic.generateAltText.mockReset();
   mock.exif.stripBuffer.mockReset();
   mock.exif.stripBuffer.mockImplementation(async (buf: Buffer) => buf);
+  mock.ideogram.generate.mockReset();
 });
 
 afterAll(async () => {
@@ -26,8 +27,8 @@ afterAll(async () => {
 });
 
 const DRAFT_WITH_SLOTS: BlogDraft = {
-  headline: "Cozy",
-  urlSlug: "cozy",
+  headline: "Cozy Nook Ideas",
+  urlSlug: "cozy-nook-ideas",
   bodyMarkdown: "body",
   metaDescription: "m",
   socialDescription: "s",
@@ -35,30 +36,9 @@ const DRAFT_WITH_SLOTS: BlogDraft = {
   tags: ["cozy"],
   imageSlots: [
     { position: 0, promptHint: "sunlit reading nook" },
-    { position: 1, promptHint: "warm kitchen" },
+    { position: 1, promptHint: "warm kitchen corner" },
   ],
 };
-
-function buildMultipart(
-  filename: string,
-  contentType: string,
-  fileData: Buffer,
-): { payload: Buffer; headers: Record<string, string> } {
-  const boundary = "----pa-test-boundary-" + Math.random().toString(16).slice(2);
-  const preamble = Buffer.from(
-    `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${filename}"\r\nContent-Type: ${contentType}\r\n\r\n`,
-    "utf8",
-  );
-  const closing = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
-  const payload = Buffer.concat([preamble, fileData, closing]);
-  return {
-    payload,
-    headers: {
-      "content-type": `multipart/form-data; boundary=${boundary}`,
-      "content-length": String(payload.length),
-    },
-  };
-}
 
 describe("POST /workflows/:id/images/start", () => {
   const runId = "00000000-0000-4000-8000-000000000a00";
@@ -66,16 +46,29 @@ describe("POST /workflows/:id/images/start", () => {
   const draftApprovalId = "00000000-0000-4000-8000-000000000a02";
   const newApprovalId = "00000000-0000-4000-8000-000000000a03";
 
-  it("resolves pending draft approval and creates images approval with empty uploads", async () => {
+  it("calls Ideogram per slot, uploads to WP, creates images approval with generated URLs", async () => {
     mock.workflow.get.mockResolvedValue({ id: runId, kind: "blog" } as never);
     mock.workflow.getBlogDraftByRun.mockResolvedValue({
       id: draftId,
+      keyword: "cozy nook",
       draft: DRAFT_WITH_SLOTS,
     } as never);
     mock.approvals.listByRun.mockResolvedValue([
       { id: draftApprovalId, kind: "draft", status: "pending" },
     ] as never);
     mock.approvals.decide.mockResolvedValue({} as never);
+    mock.ideogram.generate.mockResolvedValue({
+      imageUrl: "https://ideogram.ai/temp/img.jpg",
+      seed: 12345,
+    });
+    mock.wordpress.uploadMedia.mockResolvedValue({
+      mediaId: 701,
+      sourceUrl: "https://wp.example.com/slot.jpg",
+    });
+    mock.anthropic.generateAltText.mockResolvedValue({
+      altText: "A sunlit nook with plants",
+      confidence: "high",
+    });
     mock.approvals.create.mockResolvedValue({ id: newApprovalId } as never);
     mock.workflow.update.mockResolvedValue({} as never);
 
@@ -86,32 +79,24 @@ describe("POST /workflows/:id/images/start", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    const body = res.json() as {
-      slots: ImagesApprovalPayload["slots"];
-      approvalId: string;
-    };
-    expect(body.slots).toHaveLength(2);
+    const body = res.json() as { slots: ImagesApprovalPayload["slots"]; approvalId: string };
     expect(body.approvalId).toBe(newApprovalId);
+    expect(body.slots).toHaveLength(2);
     expect(body.slots[0]).toMatchObject({
       slotPosition: 0,
       promptHint: "sunlit reading nook",
-      uploadedImageUrl: "",
-      needsManualUpload: true,
+      generatedImageUrl: "https://wp.example.com/slot.jpg",
+      ideogramSeed: 12345,
     });
-
+    expect(mock.ideogram.generate).toHaveBeenCalledTimes(2);
+    expect(mock.wordpress.uploadMedia).toHaveBeenCalledTimes(2);
     expect(mock.approvals.decide).toHaveBeenCalledWith({
       approvalId: draftApprovalId,
       status: "approved",
     });
-    const approvalArg = mock.approvals.create.mock.calls[0]![0] as {
-      kind: string;
-      payload: ImagesApprovalPayload;
-    };
-    expect(approvalArg.kind).toBe("images");
-    expect(approvalArg.payload.slots).toHaveLength(2);
   });
 
-  it("returns existing pending images approval idempotently", async () => {
+  it("returns existing pending images approval idempotently without re-generating", async () => {
     mock.workflow.get.mockResolvedValue({ id: runId, kind: "blog" } as never);
     mock.workflow.getBlogDraftByRun.mockResolvedValue({
       id: draftId,
@@ -126,9 +111,8 @@ describe("POST /workflows/:id/images/start", () => {
           slots: [
             {
               slotPosition: 0,
-              promptHint: "x",
-              uploadedImageUrl: "",
-              needsManualUpload: true,
+              promptHint: "sunlit reading nook",
+              generatedImageUrl: "https://wp.example.com/existing.jpg",
             },
           ],
         },
@@ -140,9 +124,11 @@ describe("POST /workflows/:id/images/start", () => {
       url: `/workflows/${runId}/images/start`,
       payload: {},
     });
+
     expect(res.statusCode).toBe(200);
     const body = res.json() as { approvalId: string };
     expect(body.approvalId).toBe(newApprovalId);
+    expect(mock.ideogram.generate).not.toHaveBeenCalled();
     expect(mock.approvals.create).not.toHaveBeenCalled();
   });
 
@@ -161,14 +147,37 @@ describe("POST /workflows/:id/images/start", () => {
     });
     expect(res.statusCode).toBe(400);
   });
+
+  it("stores empty generatedImageUrl and continues when Ideogram fails for a slot", async () => {
+    mock.workflow.get.mockResolvedValue({ id: runId, kind: "blog" } as never);
+    mock.workflow.getBlogDraftByRun.mockResolvedValue({
+      id: draftId,
+      keyword: "cozy",
+      draft: { ...DRAFT_WITH_SLOTS, imageSlots: [{ position: 0, promptHint: "nook" }] },
+    } as never);
+    mock.approvals.listByRun.mockResolvedValue([] as never);
+    mock.ideogram.generate.mockRejectedValue(new Error("Ideogram timeout"));
+    mock.approvals.create.mockResolvedValue({ id: newApprovalId } as never);
+    mock.workflow.update.mockResolvedValue({} as never);
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/workflows/${runId}/images/start`,
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { slots: ImagesApprovalPayload["slots"] };
+    expect(body.slots[0]!.generatedImageUrl).toBe("");
+  });
 });
 
-describe("POST /workflows/:id/images/:slotPosition/upload", () => {
+describe("POST /workflows/:id/images/:slotPosition/regenerate", () => {
   const runId = "00000000-0000-4000-8000-000000000b00";
   const draftId = "00000000-0000-4000-8000-000000000b01";
   const approvalId = "00000000-0000-4000-8000-000000000b02";
 
-  it("strips EXIF, uploads to WP, patches slot with URL and alt text", async () => {
+  it("regenerates a slot via Ideogram and updates the approval payload", async () => {
     mock.approvals.listByRun.mockResolvedValue([
       {
         id: approvalId,
@@ -179,8 +188,7 @@ describe("POST /workflows/:id/images/:slotPosition/upload", () => {
             {
               slotPosition: 0,
               promptHint: "sunlit reading nook",
-              uploadedImageUrl: "",
-              needsManualUpload: true,
+              generatedImageUrl: "https://wp.example.com/old.jpg",
             },
           ],
         },
@@ -191,76 +199,43 @@ describe("POST /workflows/:id/images/:slotPosition/upload", () => {
       keyword: "cozy nook",
       draft: { headline: "Cozy Nook Ideas" },
     } as never);
+    mock.ideogram.generate.mockResolvedValue({
+      imageUrl: "https://ideogram.ai/temp/new.jpg",
+      seed: 99999,
+    });
     mock.wordpress.uploadMedia.mockResolvedValue({
-      mediaId: 701,
-      sourceUrl: "https://wp.example.com/slot-0.jpg",
+      mediaId: 702,
+      sourceUrl: "https://wp.example.com/new.jpg",
     });
     mock.anthropic.generateAltText.mockResolvedValue({
-      altText: "A sunlit nook with plants",
+      altText: "Fresh sunlit nook",
       confidence: "high",
     });
     mock.approvals.updatePayload.mockResolvedValue({} as never);
 
-    const fileData = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-    const { payload, headers } = buildMultipart("nook.jpg", "image/jpeg", fileData);
-
     const res = await app.inject({
       method: "POST",
-      url: `/workflows/${runId}/images/0/upload`,
-      payload,
-      headers,
+      url: `/workflows/${runId}/images/0/regenerate`,
+      payload: {},
     });
-    expect(res.statusCode).toBe(200);
 
-    expect(mock.exif.stripBuffer).toHaveBeenCalledTimes(1);
-    expect(mock.wordpress.uploadMedia).toHaveBeenCalledTimes(1);
-    const [, updated] = mock.approvals.updatePayload.mock.calls[0]!;
-    const slot = (updated as ImagesApprovalPayload).slots[0]!;
-    expect(slot.uploadedImageUrl).toBe("https://wp.example.com/slot-0.jpg");
-    expect(slot.needsManualUpload).toBe(false);
-    expect(slot.altTextSuggestion).toBe("A sunlit nook with plants");
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { slot: ImagesApprovalPayload["slots"][number] };
+    expect(body.slot.generatedImageUrl).toBe("https://wp.example.com/new.jpg");
+    expect(body.slot.ideogramSeed).toBe(99999);
+    expect(mock.ideogram.generate).toHaveBeenCalledTimes(1);
+    expect(mock.approvals.updatePayload).toHaveBeenCalledTimes(1);
   });
 
   it("404s when no pending images approval exists", async () => {
     mock.approvals.listByRun.mockResolvedValue([] as never);
-    const fileData = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-    const { payload, headers } = buildMultipart("x.jpg", "image/jpeg", fileData);
+
     const res = await app.inject({
       method: "POST",
-      url: `/workflows/${runId}/images/0/upload`,
-      payload,
-      headers,
+      url: `/workflows/${runId}/images/0/regenerate`,
+      payload: {},
     });
     expect(res.statusCode).toBe(404);
-  });
-
-  it("400s on unknown slot position", async () => {
-    mock.approvals.listByRun.mockResolvedValue([
-      {
-        id: approvalId,
-        kind: "images",
-        status: "pending",
-        payload: {
-          slots: [
-            {
-              slotPosition: 0,
-              promptHint: "x",
-              uploadedImageUrl: "",
-              needsManualUpload: true,
-            },
-          ],
-        },
-      },
-    ] as never);
-    const fileData = Buffer.from([0xff, 0xd8, 0xff, 0xd9]);
-    const { payload, headers } = buildMultipart("x.jpg", "image/jpeg", fileData);
-    const res = await app.inject({
-      method: "POST",
-      url: `/workflows/${runId}/images/9/upload`,
-      payload,
-      headers,
-    });
-    expect(res.statusCode).toBe(400);
   });
 });
 
@@ -269,7 +244,7 @@ describe("POST /workflows/:id/images/decide", () => {
   const draftId = "00000000-0000-4000-8000-000000000c01";
   const approvalId = "00000000-0000-4000-8000-000000000c02";
 
-  it("maps uploaded URLs to chosenImages and advances to affiliates step", async () => {
+  it("maps generated URLs to chosenImages and advances to affiliates step", async () => {
     mock.workflow.get.mockResolvedValue({ id: runId, kind: "blog" } as never);
     mock.workflow.getBlogDraftByRun.mockResolvedValue({ id: draftId } as never);
     mock.approvals.listByRun.mockResolvedValue([
@@ -282,15 +257,13 @@ describe("POST /workflows/:id/images/decide", () => {
             {
               slotPosition: 0,
               promptHint: "a",
-              uploadedImageUrl: "https://wp.example.com/a.jpg",
-              needsManualUpload: false,
+              generatedImageUrl: "https://wp.example.com/a.jpg",
               altTextSuggestion: "alt a",
             },
             {
               slotPosition: 1,
               promptHint: "b",
-              uploadedImageUrl: "https://wp.example.com/b.jpg",
-              needsManualUpload: false,
+              generatedImageUrl: "https://wp.example.com/b.jpg",
             },
           ],
         },
@@ -332,7 +305,7 @@ describe("POST /workflows/:id/images/decide", () => {
     );
   });
 
-  it("400s with image_not_uploaded when any slot has empty uploadedImageUrl", async () => {
+  it("400s when any slot has empty generatedImageUrl", async () => {
     mock.workflow.get.mockResolvedValue({ id: runId, kind: "blog" } as never);
     mock.workflow.getBlogDraftByRun.mockResolvedValue({ id: draftId } as never);
     mock.approvals.listByRun.mockResolvedValue([
@@ -342,18 +315,8 @@ describe("POST /workflows/:id/images/decide", () => {
         status: "pending",
         payload: {
           slots: [
-            {
-              slotPosition: 0,
-              promptHint: "a",
-              uploadedImageUrl: "https://wp.example.com/a.jpg",
-              needsManualUpload: false,
-            },
-            {
-              slotPosition: 1,
-              promptHint: "b",
-              uploadedImageUrl: "",
-              needsManualUpload: true,
-            },
+            { slotPosition: 0, promptHint: "a", generatedImageUrl: "https://wp.example.com/a.jpg" },
+            { slotPosition: 1, promptHint: "b", generatedImageUrl: "" },
           ],
         },
       },
@@ -362,16 +325,10 @@ describe("POST /workflows/:id/images/decide", () => {
     const res = await app.inject({
       method: "POST",
       url: `/workflows/${runId}/images/decide`,
-      payload: {
-        slots: [
-          { slotPosition: 0 },
-          { slotPosition: 1 },
-        ],
-      },
+      payload: { slots: [{ slotPosition: 0 }, { slotPosition: 1 }] },
     });
     expect(res.statusCode).toBe(400);
-    const body = res.json() as { error: string };
-    expect(body.error).toBe("image_not_uploaded");
+    expect((res.json() as { error: string }).error).toBe("image_not_generated");
     expect(mock.workflow.updateBlogDraftImages).not.toHaveBeenCalled();
   });
 });

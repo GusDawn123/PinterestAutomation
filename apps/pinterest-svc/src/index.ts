@@ -7,6 +7,7 @@ import { WorkflowService } from "./services/workflow.js";
 import { PinsQueueService } from "./services/pins-queue.js";
 import { AnalyticsService } from "./services/analytics.js";
 import { RecommenderService } from "./services/recommender.js";
+import { IdeogramClient } from "./clients/ideogram.js";
 import { PinterestClient } from "./clients/pinterest.js";
 import { AnthropicClient } from "./clients/anthropic.js";
 import { WordpressClient } from "./clients/wordpress.js";
@@ -25,6 +26,7 @@ async function buildContext(): Promise<ServiceContext> {
     pinsQueue: new PinsQueueService(db),
     analytics: new AnalyticsService(db),
     recommender: new RecommenderService(db),
+    ideogram: new IdeogramClient(env),
     pinterest: new PinterestClient(),
     anthropic: new AnthropicClient(),
     wordpress: new WordpressClient(),

@@ -24,9 +24,9 @@ Thumbs.db
 pnpm-debug.log*
 
 postgres-data/
-n8n-data/
 langfuse-data/
 r2-local/
+test-results/
 
 *.sqlite
 *.sqlite-journal
