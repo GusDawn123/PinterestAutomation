@@ -8,6 +8,11 @@ export const TrendingKeywordSchema = z.object({
 });
 export type TrendingKeyword = z.infer<typeof TrendingKeywordSchema>;
 
+export const ScoredKeywordSchema = TrendingKeywordSchema.extend({
+  score: z.number(),
+});
+export type ScoredKeyword = z.infer<typeof ScoredKeywordSchema>;
+
 export const BlogDraftSchema = z.object({
   headline: z.string().min(1),
   urlSlug: z.string().regex(/^[a-z0-9-]+$/, "slug must be lowercase kebab-case"),
@@ -67,21 +72,69 @@ export const RecommendedSlotSchema = z.object({
 });
 export type RecommendedSlot = z.infer<typeof RecommendedSlotSchema>;
 
+export const WorkflowKind = z.enum(["blog", "pins"]);
+export type WorkflowKind = z.infer<typeof WorkflowKind>;
+
+export const WorkflowStatus = z.enum([
+  "running",
+  "awaiting_approval",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export type WorkflowStatus = z.infer<typeof WorkflowStatus>;
+
+export const WorkflowRunSchema = z.object({
+  id: z.string().uuid(),
+  kind: WorkflowKind,
+  status: WorkflowStatus,
+  currentStep: z.string(),
+  context: z.unknown(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  finishedAt: z.string().datetime().nullable(),
+});
+export type WorkflowRun = z.infer<typeof WorkflowRunSchema>;
+
 export const ApprovalStatus = z.enum(["pending", "approved", "rejected", "changes_requested"]);
 export type ApprovalStatus = z.infer<typeof ApprovalStatus>;
 
-export const ApprovalKind = z.enum([
-  "keyword",
-  "draft",
-  "images",
-  "pins",
-  "publish",
-]);
+export const ApprovalKind = z.enum(["keyword", "draft", "images", "pins", "publish"]);
 export type ApprovalKind = z.infer<typeof ApprovalKind>;
+
+export const KeywordApprovalPayloadSchema = z.object({
+  candidates: z.array(ScoredKeywordSchema).min(1).max(20),
+});
+export type KeywordApprovalPayload = z.infer<typeof KeywordApprovalPayloadSchema>;
+
+export const KeywordApprovalDecisionSchema = z.object({
+  chosenKeyword: z.string().min(1),
+  brief: z.string().min(1),
+});
+export type KeywordApprovalDecision = z.infer<typeof KeywordApprovalDecisionSchema>;
+
+export const DraftApprovalPayloadSchema = z.object({
+  draft: BlogDraftSchema,
+  chosenKeyword: z.string(),
+  brief: z.string(),
+});
+export type DraftApprovalPayload = z.infer<typeof DraftApprovalPayloadSchema>;
+
+export const DraftApprovalDecisionSchema = z.object({
+  editedDraft: BlogDraftSchema,
+});
+export type DraftApprovalDecision = z.infer<typeof DraftApprovalDecisionSchema>;
+
+export const ApprovalDecisionSchema = z.object({
+  status: ApprovalStatus,
+  data: z.unknown().optional(),
+  notes: z.string().max(2000).optional(),
+});
+export type ApprovalDecision = z.infer<typeof ApprovalDecisionSchema>;
 
 export const ApprovalRequestSchema = z.object({
   id: z.string().uuid(),
-  workflowRunId: z.string(),
+  workflowRunId: z.string().uuid(),
   kind: ApprovalKind,
   payload: z.unknown(),
   status: ApprovalStatus,
@@ -89,5 +142,29 @@ export const ApprovalRequestSchema = z.object({
   decidedAt: z.string().datetime().nullable(),
   decidedBy: z.string().nullable(),
   notes: z.string().nullable(),
+  decisionData: z.unknown().nullable(),
 });
 export type ApprovalRequest = z.infer<typeof ApprovalRequestSchema>;
+
+export const StartBlogWorkflowInputSchema = z.object({
+  region: z.string().length(2).default("US"),
+});
+export type StartBlogWorkflowInput = z.infer<typeof StartBlogWorkflowInputSchema>;
+
+export const StartBlogWorkflowResultSchema = z.object({
+  workflowRunId: z.string().uuid(),
+  approvalId: z.string().uuid(),
+});
+export type StartBlogWorkflowResult = z.infer<typeof StartBlogWorkflowResultSchema>;
+
+export const WordpressDraftRequestSchema = z.object({
+  draft: BlogDraftSchema,
+});
+export type WordpressDraftRequest = z.infer<typeof WordpressDraftRequestSchema>;
+
+export const WordpressDraftResponseSchema = z.object({
+  postId: z.number().int().positive(),
+  editUrl: z.string().url(),
+  previewUrl: z.string().url(),
+});
+export type WordpressDraftResponse = z.infer<typeof WordpressDraftResponseSchema>;
