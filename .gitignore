@@ -18,6 +18,8 @@ Thumbs.db
 .vscode/
 .idea/
 
+.claude/settings.local.json
+
 .pnpm-store/
 pnpm-debug.log*
 

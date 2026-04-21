@@ -54,6 +54,16 @@ export class ApprovalService {
       .orderBy(desc(approvals.createdAt));
   }
 
+  async updatePayload(approvalId: string, payload: unknown) {
+    const [row] = await this.db
+      .update(approvals)
+      .set({ payload: payload as object })
+      .where(and(eq(approvals.id, approvalId), eq(approvals.status, "pending")))
+      .returning();
+    if (!row) throw new Error(`Approval ${approvalId} is not pending or does not exist`);
+    return row;
+  }
+
   async decide(input: DecideApprovalInput) {
     const [row] = await this.db
       .update(approvals)

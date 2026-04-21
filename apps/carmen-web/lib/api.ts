@@ -1,10 +1,24 @@
 import type {
+  AffiliateProduct,
+  AffiliateRetailer,
+  AffiliatesApprovalDecision,
+  AffiliatesApprovalPayload,
   ApprovalDecision,
   ApprovalRequest,
   BlogDraft,
+  ComposedPin,
+  ImageAffiliateSlot,
+  ImageSlotDraft,
+  ImagesApprovalDecision,
   KeywordApprovalDecision,
+  PinQueueItem,
+  PinsApprovalDecision,
+  PinsApprovalPayload,
+  RecommendedSlot,
   ScoredKeyword,
   StartBlogWorkflowResult,
+  StartPinsWorkflowInput,
+  StartPinsWorkflowResult,
   WorkflowRun,
 } from "@pa/shared-types";
 
@@ -57,11 +71,133 @@ export const api = {
       `/workflows/${id}`,
     ),
 
+  startImages: (workflowRunId: string) =>
+    fetchSvc<{ workflowRunId: string; approvalId: string; slots: ImageSlotDraft[] }>(
+      `/workflows/${workflowRunId}/images/start`,
+      { method: "POST" },
+    ),
+
+  uploadImage: async (workflowRunId: string, slotPosition: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(
+      `${BASE}/workflows/${workflowRunId}/images/${slotPosition}/upload`,
+      { method: "POST", body: form, cache: "no-store" },
+    );
+    if (!res.ok) {
+      throw new Error(
+        `pinterest-svc /images/${slotPosition}/upload ${res.status}: ${await res.text()}`,
+      );
+    }
+    return (await res.json()) as { slot: ImageSlotDraft };
+  },
+
+  decideImages: (workflowRunId: string, decision: ImagesApprovalDecision) =>
+    fetchSvc<{ workflowRunId: string; chosenImages: unknown[] }>(
+      `/workflows/${workflowRunId}/images/decide`,
+      {
+        method: "POST",
+        body: JSON.stringify(decision),
+      },
+    ),
+
+  startAffiliates: (workflowRunId: string) =>
+    fetchSvc<{ workflowRunId: string; approvalId: string; slotCount: number }>(
+      `/workflows/${workflowRunId}/affiliates/start`,
+      { method: "POST" },
+    ),
+
+  decideAffiliates: (workflowRunId: string, decision: AffiliatesApprovalDecision) =>
+    fetchSvc<{ workflowRunId: string; slotCount: number }>(
+      `/workflows/${workflowRunId}/affiliates/decide`,
+      {
+        method: "POST",
+        body: JSON.stringify(decision),
+      },
+    ),
+
   publishToWordpress: (workflowRunId: string) =>
     fetchSvc<{ postId: number; editUrl: string; previewUrl: string }>(
       `/workflows/${workflowRunId}/wordpress-draft`,
       { method: "POST" },
     ),
+
+  startPins: (
+    blogWorkflowRunId: string,
+    body: Omit<StartPinsWorkflowInput, "blogWorkflowRunId">,
+  ) =>
+    fetchSvc<StartPinsWorkflowResult>(`/workflows/${blogWorkflowRunId}/pins/start`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  regeneratePin: (workflowRunId: string, pinIndex: number) =>
+    fetchSvc<{ pin: PinsApprovalPayload["pins"][number] }>(
+      `/workflows/${workflowRunId}/pins/regenerate`,
+      {
+        method: "POST",
+        body: JSON.stringify({ pinIndex }),
+      },
+    ),
+
+  uploadPin: async (workflowRunId: string, pinIndex: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(
+      `${BASE}/workflows/${workflowRunId}/pins/${pinIndex}/upload`,
+      { method: "POST", body: form, cache: "no-store" },
+    );
+    if (!res.ok) {
+      throw new Error(
+        `pinterest-svc /pins/${pinIndex}/upload ${res.status}: ${await res.text()}`,
+      );
+    }
+    return (await res.json()) as { pin: ComposedPin };
+  },
+
+  decidePins: (workflowRunId: string, decision: PinsApprovalDecision) =>
+    fetchSvc<{ workflowRunId: string; queued: string[] }>(
+      `/workflows/${workflowRunId}/pins/decide`,
+      {
+        method: "POST",
+        body: JSON.stringify(decision),
+      },
+    ),
+
+  listQueuedPins: () => fetchSvc<{ items: PinQueueItem[] }>("/pins/queue"),
+  listPostedPins: () => fetchSvc<{ items: PinQueueItem[] }>("/pins/posted"),
+
+  reschedulePin: (pinQueueId: string, scheduledAt: string) =>
+    fetchSvc<{ id: string; scheduledAt: string }>(`/pins/${pinQueueId}/reschedule`, {
+      method: "POST",
+      body: JSON.stringify({ scheduledAt }),
+    }),
+
+  cancelPin: (pinQueueId: string) =>
+    fetchSvc<{ ok: true }>(`/pins/${pinQueueId}`, { method: "DELETE" }),
+
+  listRecommendedSlots: (boardId: string) =>
+    fetchSvc<{ slots: RecommendedSlot[] }>(
+      `/analytics/slots?boardId=${encodeURIComponent(boardId)}`,
+    ),
+
+  listAnalytics: () =>
+    fetchSvc<{ items: Array<Record<string, unknown>> }>("/analytics/pins"),
 };
 
-export type { ApprovalRequest, BlogDraft, ScoredKeyword, WorkflowRun };
+export type {
+  AffiliateProduct,
+  AffiliateRetailer,
+  AffiliatesApprovalDecision,
+  AffiliatesApprovalPayload,
+  ApprovalRequest,
+  BlogDraft,
+  ComposedPin,
+  ImageAffiliateSlot,
+  ImageSlotDraft,
+  PinQueueItem,
+  PinsApprovalPayload,
+  RecommendedSlot,
+  ScoredKeyword,
+  WorkflowRun,
+};

@@ -21,14 +21,6 @@ const schema = z.object({
   ANTHROPIC_MODEL_PRIMARY: z.string().default("claude-opus-4-7"),
   ANTHROPIC_MODEL_FALLBACK: z.string().default("claude-sonnet-4-6"),
 
-  IDEOGRAM_API_KEY: z.string().optional(),
-  IDEOGRAM_NUM_VARIANTS: z.coerce.number().int().min(1).max(8).default(4),
-
-  CANVA_CLIENT_ID: z.string().optional(),
-  CANVA_CLIENT_SECRET: z.string().optional(),
-  CANVA_REFRESH_TOKEN: z.string().optional(),
-  CANVA_TEMPLATE_ID: z.string().optional(),
-
   UNDETECTABLE_API_KEY: z.string().optional(),
   HUMANIZE_ENABLED: z
     .string()
@@ -38,7 +30,7 @@ const schema = z.object({
   STRIP_EXIF: z
     .string()
     .transform((v) => v === "true")
-    .default("false"),
+    .default("true"),
 
   R2_ACCOUNT_ID: z.string().optional(),
   R2_ACCESS_KEY_ID: z.string().optional(),
@@ -63,7 +55,6 @@ const schema = z.object({
     .string()
     .transform((v) => v === "true")
     .default("false"),
-  MONTHLY_IDEOGRAM_SPEND_CAP_USD: z.coerce.number().nonnegative().default(60),
 });
 
 export type Env = z.infer<typeof schema>;

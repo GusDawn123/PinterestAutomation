@@ -1,7 +1,18 @@
 import { eq } from "drizzle-orm";
 import type { Database } from "../db.js";
 import { workflowRuns, blogDrafts } from "../db/schema.js";
-import type { BlogDraft, WorkflowKind, WorkflowStatus } from "@pa/shared-types";
+import type {
+  AffiliateProduct,
+  BlogDraft,
+  ChosenImage,
+  WorkflowKind,
+  WorkflowStatus,
+} from "@pa/shared-types";
+
+export interface BlogDraftAffiliateSlot {
+  slotPosition: number;
+  products: AffiliateProduct[];
+}
 
 export class WorkflowService {
   constructor(private readonly db: Database) {}
@@ -39,6 +50,29 @@ export class WorkflowService {
       .values({ workflowRunId, keyword, brief, draft })
       .returning();
     if (!row) throw new Error("Failed to insert blog draft");
+    return row;
+  }
+
+  async updateBlogDraftImages(blogDraftId: string, chosenImages: ChosenImage[]) {
+    const [row] = await this.db
+      .update(blogDrafts)
+      .set({ chosenImages, updatedAt: new Date() })
+      .where(eq(blogDrafts.id, blogDraftId))
+      .returning();
+    if (!row) throw new Error(`blog draft ${blogDraftId} not found`);
+    return row;
+  }
+
+  async updateBlogDraftAffiliates(
+    blogDraftId: string,
+    affiliateProducts: BlogDraftAffiliateSlot[],
+  ) {
+    const [row] = await this.db
+      .update(blogDrafts)
+      .set({ affiliateProducts, updatedAt: new Date() })
+      .where(eq(blogDrafts.id, blogDraftId))
+      .returning();
+    if (!row) throw new Error(`blog draft ${blogDraftId} not found`);
     return row;
   }
 

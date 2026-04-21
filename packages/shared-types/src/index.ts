@@ -31,14 +31,144 @@ export const BlogDraftSchema = z.object({
 });
 export type BlogDraft = z.infer<typeof BlogDraftSchema>;
 
-export const IdeogramVariantSchema = z.object({
+export const ImageSlotDraftSchema = z.object({
   slotPosition: z.number().int().nonnegative(),
-  variantIndex: z.number().int().min(0).max(7),
+  promptHint: z.string(),
+  altTextSuggestion: z.string().optional(),
+  uploadedImageUrl: z.string().default(""),
+  needsManualUpload: z.boolean().default(true),
+});
+export type ImageSlotDraft = z.infer<typeof ImageSlotDraftSchema>;
+
+export const ImagesApprovalPayloadSchema = z.object({
+  slots: z.array(ImageSlotDraftSchema).min(1),
+});
+export type ImagesApprovalPayload = z.infer<typeof ImagesApprovalPayloadSchema>;
+
+export const ImagesApprovalDecisionSchema = z.object({
+  slots: z
+    .array(
+      z.object({
+        slotPosition: z.number().int().nonnegative(),
+        altTextOverride: z.string().max(500).optional(),
+      }),
+    )
+    .min(1),
+});
+export type ImagesApprovalDecision = z.infer<typeof ImagesApprovalDecisionSchema>;
+
+export const ChosenImageSchema = z.object({
+  slotPosition: z.number().int().nonnegative(),
   imageUrl: z.string().url(),
   prompt: z.string(),
-  expiresAt: z.string().datetime().optional(),
+  altText: z.string().optional(),
 });
-export type IdeogramVariant = z.infer<typeof IdeogramVariantSchema>;
+export type ChosenImage = z.infer<typeof ChosenImageSchema>;
+
+export const AffiliateRetailerEnum = z.enum([
+  "amazon",
+  "lowes",
+  "target",
+  "dharma_crafts",
+  "sounds_true",
+  "other",
+]);
+export type AffiliateRetailer = z.infer<typeof AffiliateRetailerEnum>;
+
+export const AffiliateProductSchema = z.object({
+  retailer: AffiliateRetailerEnum,
+  rawHtml: z.string().min(1).max(20_000),
+  displayLabel: z.string().max(200).optional(),
+});
+export type AffiliateProduct = z.infer<typeof AffiliateProductSchema>;
+
+export const ImageAffiliateSlotSchema = z.object({
+  slotPosition: z.number().int().nonnegative(),
+  imageUrl: z.string().url(),
+  altText: z.string().optional(),
+  suggestedQueries: z.array(z.string().min(1).max(200)).min(1).max(5),
+  products: z.array(AffiliateProductSchema).max(5).default([]),
+});
+export type ImageAffiliateSlot = z.infer<typeof ImageAffiliateSlotSchema>;
+
+export const AffiliatesApprovalPayloadSchema = z.object({
+  slots: z.array(ImageAffiliateSlotSchema).min(1),
+});
+export type AffiliatesApprovalPayload = z.infer<typeof AffiliatesApprovalPayloadSchema>;
+
+export const AffiliatesApprovalDecisionSchema = z.object({
+  slots: z
+    .array(
+      z.object({
+        slotPosition: z.number().int().nonnegative(),
+        products: z.array(AffiliateProductSchema).max(5).default([]),
+      }),
+    )
+    .min(1),
+});
+export type AffiliatesApprovalDecision = z.infer<typeof AffiliatesApprovalDecisionSchema>;
+
+export const AffiliateQueriesResultSchema = z.object({
+  queries: z.array(z.string().min(1).max(200)).min(1).max(5),
+});
+export type AffiliateQueriesResult = z.infer<typeof AffiliateQueriesResultSchema>;
+
+export const AltTextRequestSchema = z.object({
+  imageUrl: z.string().url(),
+  blogTitle: z.string().min(1),
+  primaryKeyword: z.string().min(1),
+  promptHint: z.string().min(1),
+});
+export type AltTextRequest = z.infer<typeof AltTextRequestSchema>;
+
+export const AltTextResultSchema = z.object({
+  altText: z.string().max(500),
+  confidence: z.enum(["low", "medium", "high"]),
+  notes: z.string().optional(),
+});
+export type AltTextResult = z.infer<typeof AltTextResultSchema>;
+
+export const InterlinkCandidatePostSchema = z.object({
+  url: z.string().url(),
+  title: z.string(),
+  excerpt: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  publishedAt: z.string().datetime().optional(),
+});
+export type InterlinkCandidatePost = z.infer<typeof InterlinkCandidatePostSchema>;
+
+export const InterlinkRequestSchema = z.object({
+  draft: BlogDraftSchema,
+  candidatePosts: z.array(InterlinkCandidatePostSchema),
+  maxLinks: z.number().int().min(1).max(10).default(5),
+});
+export type InterlinkRequest = z.infer<typeof InterlinkRequestSchema>;
+
+export const InterlinkSelectionSchema = z.object({
+  url: z.string().url(),
+  anchor: z.string().min(1),
+  sectionIndex: z.number().int().nonnegative(),
+  reason: z.string(),
+});
+export type InterlinkSelection = z.infer<typeof InterlinkSelectionSchema>;
+
+export const InterlinkResultSchema = z.object({
+  selections: z.array(InterlinkSelectionSchema),
+});
+export type InterlinkResult = z.infer<typeof InterlinkResultSchema>;
+
+export const HumanizeRequestSchema = z.object({
+  text: z.string().min(1).max(50_000),
+  readability: z.enum(["high_school", "university", "doctorate", "journalist", "marketing"]).default("high_school"),
+  purpose: z.enum(["general_writing", "essay", "article", "blog", "marketing", "story", "cover_letter", "report"]).default("blog"),
+});
+export type HumanizeRequest = z.infer<typeof HumanizeRequestSchema>;
+
+export const HumanizeResultSchema = z.object({
+  humanizedText: z.string().min(1),
+  documentId: z.string(),
+});
+export type HumanizeResult = z.infer<typeof HumanizeResultSchema>;
 
 export const PinSchema = z.object({
   id: z.string().uuid(),
@@ -52,6 +182,86 @@ export const PinSchema = z.object({
   pinterestPinId: z.string().nullable(),
 });
 export type Pin = z.infer<typeof PinSchema>;
+
+export const PinCopyVariationSchema = z.object({
+  title: z.string().min(1).max(100),
+  description: z.string().min(1).max(500),
+});
+export type PinCopyVariation = z.infer<typeof PinCopyVariationSchema>;
+
+export const PinCopyRequestSchema = z.object({
+  blogHeadline: z.string().min(1),
+  blogUrl: z.string().url(),
+  primaryKeyword: z.string().min(1),
+  relatedKeywords: z.array(z.string()).default([]),
+  imageUrl: z.string().url(),
+  imageAltText: z.string().optional(),
+  variationsPerImage: z.number().int().min(1).max(5).default(3),
+});
+export type PinCopyRequest = z.infer<typeof PinCopyRequestSchema>;
+
+export const PinCopyResultSchema = z.object({
+  imageUrl: z.string().url(),
+  variations: z.array(PinCopyVariationSchema).min(1).max(5),
+});
+export type PinCopyResult = z.infer<typeof PinCopyResultSchema>;
+
+export const ComposedPinSchema = z.object({
+  pinIndex: z.number().int().nonnegative(),
+  sourceImageUrl: z.string().url(),
+  composedImageUrl: z.string().default(""),
+  variations: z.array(PinCopyVariationSchema).min(1).max(5),
+  needsManualUpload: z.boolean().optional(),
+});
+export type ComposedPin = z.infer<typeof ComposedPinSchema>;
+
+export const PinsApprovalPayloadSchema = z.object({
+  blogPostId: z.number().int().positive().optional(),
+  blogUrl: z.string().url(),
+  boardId: z.string().min(1),
+  pins: z.array(ComposedPinSchema).min(1),
+});
+export type PinsApprovalPayload = z.infer<typeof PinsApprovalPayloadSchema>;
+
+export const PinApprovalItemSchema = z.object({
+  pinIndex: z.number().int().nonnegative(),
+  chosenVariationIndex: z.number().int().min(0).max(4),
+  edited: PinCopyVariationSchema.optional(),
+});
+export type PinApprovalItem = z.infer<typeof PinApprovalItemSchema>;
+
+export const PinsApprovalDecisionSchema = z.object({
+  approvedPins: z.array(PinApprovalItemSchema).min(1),
+  autoPost: z.boolean().default(true),
+});
+export type PinsApprovalDecision = z.infer<typeof PinsApprovalDecisionSchema>;
+
+export const SchedulePinRequestSchema = z.object({
+  imageUrl: z.string().url(),
+  title: z.string().min(1).max(100),
+  description: z.string().min(1).max(500),
+  boardId: z.string().min(1),
+  linkBackUrl: z.string().url(),
+  scheduledAt: z.string().datetime(),
+  blogPostId: z.number().int().positive().optional(),
+});
+export type SchedulePinRequest = z.infer<typeof SchedulePinRequestSchema>;
+
+export const PinQueueItemSchema = z.object({
+  id: z.string().uuid(),
+  imageUrl: z.string().url(),
+  title: z.string().min(1).max(100),
+  description: z.string().min(1).max(500),
+  boardId: z.string(),
+  linkBackUrl: z.string().url(),
+  scheduledAt: z.string().datetime(),
+  postedAt: z.string().datetime().nullable(),
+  pinterestPinId: z.string().nullable(),
+  blogPostId: z.number().int().positive().nullable(),
+  attempts: z.number().int().nonnegative(),
+  lastError: z.string().nullable(),
+});
+export type PinQueueItem = z.infer<typeof PinQueueItemSchema>;
 
 export const PinAnalyticsSchema = z.object({
   pinterestPinId: z.string(),
@@ -71,6 +281,20 @@ export const RecommendedSlotSchema = z.object({
   sampleSize: z.number().int().nonnegative(),
 });
 export type RecommendedSlot = z.infer<typeof RecommendedSlotSchema>;
+
+export const StartPinsWorkflowInputSchema = z.object({
+  blogWorkflowRunId: z.string().uuid(),
+  boardId: z.string().min(1),
+  autoPost: z.boolean().default(true),
+});
+export type StartPinsWorkflowInput = z.infer<typeof StartPinsWorkflowInputSchema>;
+
+export const StartPinsWorkflowResultSchema = z.object({
+  workflowRunId: z.string().uuid(),
+  approvalId: z.string().uuid(),
+  pinCount: z.number().int().nonnegative(),
+});
+export type StartPinsWorkflowResult = z.infer<typeof StartPinsWorkflowResultSchema>;
 
 export const WorkflowKind = z.enum(["blog", "pins"]);
 export type WorkflowKind = z.infer<typeof WorkflowKind>;
@@ -99,7 +323,14 @@ export type WorkflowRun = z.infer<typeof WorkflowRunSchema>;
 export const ApprovalStatus = z.enum(["pending", "approved", "rejected", "changes_requested"]);
 export type ApprovalStatus = z.infer<typeof ApprovalStatus>;
 
-export const ApprovalKind = z.enum(["keyword", "draft", "images", "pins", "publish"]);
+export const ApprovalKind = z.enum([
+  "keyword",
+  "draft",
+  "images",
+  "affiliates",
+  "pins",
+  "publish",
+]);
 export type ApprovalKind = z.infer<typeof ApprovalKind>;
 
 export const KeywordApprovalPayloadSchema = z.object({

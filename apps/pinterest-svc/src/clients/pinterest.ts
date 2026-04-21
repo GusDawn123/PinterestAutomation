@@ -25,6 +25,42 @@ const TrendingApiSchema = z.object({
   ),
 });
 
+const CreatePinResponseSchema = z.object({
+  id: z.string(),
+  board_id: z.string().optional(),
+});
+
+const PinAnalyticsResponseSchema = z.object({
+  all: z
+    .object({
+      daily_metrics: z.array(
+        z.object({
+          date: z.string().optional(),
+          data_status: z.string().optional(),
+          metrics: z.record(z.string(), z.number()).optional(),
+        }),
+      ).optional(),
+      summary_metrics: z.record(z.string(), z.number()).optional(),
+    })
+    .optional(),
+});
+
+export interface CreatePinInput {
+  boardId: string;
+  imageUrl: string;
+  title: string;
+  description: string;
+  linkBackUrl: string;
+  altText?: string;
+}
+
+export interface PinAnalyticsMetrics {
+  impressions: number;
+  saves: number;
+  outboundClicks: number;
+  closeups: number;
+}
+
 export type PinterestFetch = typeof fetch;
 
 export interface PinterestClientOptions {
@@ -96,6 +132,67 @@ export class PinterestClient {
     return parsed.access_token;
   }
 
+  async createPin(input: CreatePinInput): Promise<{ pinId: string }> {
+    const token = await this.getAccessToken();
+    const url = `${PINTEREST_API_BASE}/pins`;
+    const body = {
+      link: input.linkBackUrl,
+      title: input.title.slice(0, 100),
+      description: input.description.slice(0, 500),
+      alt_text: (input.altText ?? input.title).slice(0, 500),
+      board_id: input.boardId,
+      media_source: {
+        source_type: "image_url",
+        url: input.imageUrl,
+      },
+    };
+
+    const res = await this.fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      throw new Error(`Pinterest create pin failed: ${res.status} ${await res.text()}`);
+    }
+    const parsed = CreatePinResponseSchema.parse(await res.json());
+    return { pinId: parsed.id };
+  }
+
+  async getPinAnalytics(
+    pinId: string,
+    opts: { startDate?: string; endDate?: string } = {},
+  ): Promise<PinAnalyticsMetrics> {
+    const token = await this.getAccessToken();
+    const end = opts.endDate ?? isoDate(new Date());
+    const start = opts.startDate ?? isoDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+    const params = new URLSearchParams({
+      start_date: start,
+      end_date: end,
+      metric_types: "IMPRESSION,SAVE,OUTBOUND_CLICK,PIN_CLICK",
+    });
+    const url = `${PINTEREST_API_BASE}/pins/${encodeURIComponent(pinId)}/analytics?${params.toString()}`;
+
+    const res = await this.fetchImpl(url, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) {
+      throw new Error(`Pinterest pin analytics failed: ${res.status} ${await res.text()}`);
+    }
+    const parsed = PinAnalyticsResponseSchema.parse(await res.json());
+    const summary = parsed.all?.summary_metrics ?? {};
+    return {
+      impressions: Math.round(summary.IMPRESSION ?? 0),
+      saves: Math.round(summary.SAVE ?? 0),
+      outboundClicks: Math.round(summary.OUTBOUND_CLICK ?? 0),
+      closeups: Math.round(summary.PIN_CLICK ?? 0),
+    };
+  }
+
   async getTrendingKeywords(
     region: string = "US",
     trendType: "monthly" | "weekly" | "yearly" | "seasonal" = "monthly",
@@ -137,4 +234,8 @@ function estimateSearchVolume(
   if (!series || series.length === 0) return 1000;
   const avg = series.reduce((s, p) => s + p.value, 0) / series.length;
   return Math.max(1, Math.round(avg));
+}
+
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }

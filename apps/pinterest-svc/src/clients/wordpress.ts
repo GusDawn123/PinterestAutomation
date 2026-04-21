@@ -8,6 +8,12 @@ const WpPostResponseSchema = z.object({
   status: z.string(),
 });
 
+const WpMediaResponseSchema = z.object({
+  id: z.number().int().positive(),
+  source_url: z.string().url(),
+  alt_text: z.string().optional().default(""),
+});
+
 const WpCategoryResponseSchema = z.array(
   z.object({ id: z.number().int(), name: z.string(), slug: z.string() }),
 );
@@ -109,7 +115,44 @@ export class WordpressClient {
     return match?.id ?? null;
   }
 
-  async createDraft(draft: BlogDraft): Promise<WordpressDraftResponse> {
+  async uploadMedia(opts: {
+    data: Buffer | Uint8Array;
+    filename: string;
+    contentType: string;
+    altText?: string;
+    caption?: string;
+  }): Promise<{ mediaId: number; sourceUrl: string }> {
+    const url = `${this.siteUrl}/wp-json/wp/v2/media`;
+    const body = opts.data instanceof Buffer ? opts.data : Buffer.from(opts.data);
+
+    const res = await this.fetchImpl(url, {
+      method: "POST",
+      headers: {
+        Authorization: this.authHeader(),
+        "Content-Type": opts.contentType,
+        "Content-Disposition": `attachment; filename="${opts.filename}"`,
+      },
+      body,
+    });
+    if (!res.ok) {
+      throw new Error(`WP media upload failed: ${res.status} ${await res.text()}`);
+    }
+    const media = WpMediaResponseSchema.parse(await res.json());
+
+    if (opts.altText || opts.caption) {
+      await this.request("POST", `/wp-json/wp/v2/media/${media.id}`, {
+        ...(opts.altText ? { alt_text: opts.altText } : {}),
+        ...(opts.caption ? { caption: opts.caption } : {}),
+      });
+    }
+
+    return { mediaId: media.id, sourceUrl: media.source_url };
+  }
+
+  async createDraft(
+    draft: BlogDraft,
+    extras: { featuredMediaId?: number } = {},
+  ): Promise<WordpressDraftResponse> {
     const [tagIds, categoryId] = await Promise.all([
       this.upsertTagsByName(draft.tags),
       this.findCategoryByName(draft.category),
@@ -135,6 +178,7 @@ export class WordpressClient {
       excerpt: draft.metaDescription,
       status: "draft" as const,
       ...(categoryId ? { categories: [categoryId] } : {}),
+      ...(extras.featuredMediaId ? { featured_media: extras.featuredMediaId } : {}),
       tags: tagIds,
       meta,
     };

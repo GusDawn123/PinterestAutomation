@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "carmen-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@pa/carmen-web", "dev"],
+      "port": 3000
+    }
+  ]
+}

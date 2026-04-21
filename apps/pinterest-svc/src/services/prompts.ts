@@ -2,7 +2,13 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-const PROMPT_NAMES = ["blog_draft", "pin_copy", "alt_text_generator", "interlink_picker"] as const;
+const PROMPT_NAMES = [
+  "blog_draft",
+  "pin_copy",
+  "alt_text_generator",
+  "interlink_picker",
+  "affiliate_queries",
+] as const;
 export type PromptName = (typeof PROMPT_NAMES)[number];
 
 const cache = new Map<PromptName, string>();
