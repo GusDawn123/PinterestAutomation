@@ -34,9 +34,10 @@ export type BlogDraft = z.infer<typeof BlogDraftSchema>;
 export const ImageSlotDraftSchema = z.object({
   slotPosition: z.number().int().nonnegative(),
   promptHint: z.string(),
-  altTextSuggestion: z.string().optional(),
-  generatedImageUrl: z.string().default(""),
-  ideogramSeed: z.number().int().optional(),
+  uploadedImageUrl: z.string().default(""),
+  title: z.string().default(""),
+  altText: z.string().default(""),
+  detectedTags: z.array(z.string()).default([]),
 });
 export type ImageSlotDraft = z.infer<typeof ImageSlotDraftSchema>;
 
@@ -50,6 +51,7 @@ export const ImagesApprovalDecisionSchema = z.object({
     .array(
       z.object({
         slotPosition: z.number().int().nonnegative(),
+        titleOverride: z.string().max(200).optional(),
         altTextOverride: z.string().max(500).optional(),
       }),
     )
@@ -61,7 +63,9 @@ export const ChosenImageSchema = z.object({
   slotPosition: z.number().int().nonnegative(),
   imageUrl: z.string().url(),
   prompt: z.string(),
-  altText: z.string().optional(),
+  title: z.string().default(""),
+  altText: z.string().default(""),
+  detectedTags: z.array(z.string()).default([]),
 });
 export type ChosenImage = z.infer<typeof ChosenImageSchema>;
 
@@ -113,20 +117,23 @@ export const AffiliateQueriesResultSchema = z.object({
 });
 export type AffiliateQueriesResult = z.infer<typeof AffiliateQueriesResultSchema>;
 
-export const AltTextRequestSchema = z.object({
+export const ImageAnalysisRequestSchema = z.object({
   imageUrl: z.string().url(),
   blogTitle: z.string().min(1),
   primaryKeyword: z.string().min(1),
-  promptHint: z.string().min(1),
+  promptHint: z.string().default(""),
+  instructions: z.string().max(500).optional(),
 });
-export type AltTextRequest = z.infer<typeof AltTextRequestSchema>;
+export type ImageAnalysisRequest = z.infer<typeof ImageAnalysisRequestSchema>;
 
-export const AltTextResultSchema = z.object({
+export const ImageAnalysisResultSchema = z.object({
+  title: z.string().max(200),
   altText: z.string().max(500),
+  detectedTags: z.array(z.string().min(1).max(60)).max(8).default([]),
   confidence: z.enum(["low", "medium", "high"]),
   notes: z.string().optional(),
 });
-export type AltTextResult = z.infer<typeof AltTextResultSchema>;
+export type ImageAnalysisResult = z.infer<typeof ImageAnalysisResultSchema>;
 
 export const InterlinkCandidatePostSchema = z.object({
   url: z.string().url(),
@@ -197,6 +204,7 @@ export const PinCopyRequestSchema = z.object({
   imageUrl: z.string().url(),
   imageAltText: z.string().optional(),
   variationsPerImage: z.number().int().min(1).max(5).default(3),
+  instructions: z.string().max(500).optional(),
 });
 export type PinCopyRequest = z.infer<typeof PinCopyRequestSchema>;
 

@@ -8,7 +8,6 @@ import type { RecommenderService } from "../../src/services/recommender.js";
 import type { PinterestClient } from "../../src/clients/pinterest.js";
 import type { AnthropicClient } from "../../src/clients/anthropic.js";
 import type { WordpressClient } from "../../src/clients/wordpress.js";
-import type { IdeogramClient } from "../../src/clients/ideogram.js";
 import type { UndetectableClient } from "../../src/clients/undetectable.js";
 import type { ExifStripper } from "../../src/exif.js";
 import type { Alerter } from "../../src/alerting.js";
@@ -26,7 +25,6 @@ export interface MockCtx {
   pinsQueue: Mocked<PinsQueueService>;
   analytics: Mocked<AnalyticsService>;
   recommender: Mocked<RecommenderService>;
-  ideogram: Mocked<IdeogramClient>;
   pinterest: Mocked<PinterestClient>;
   anthropic: Mocked<AnthropicClient>;
   wordpress: Mocked<WordpressClient>;
@@ -34,7 +32,7 @@ export interface MockCtx {
   exif: Mocked<ExifStripper>;
   alerter: Mocked<Alerter>;
   getBlogDraftPrompt: ReturnType<typeof vi.fn>;
-  getAltTextPrompt: ReturnType<typeof vi.fn>;
+  getImageAnalysisPrompt: ReturnType<typeof vi.fn>;
   getInterlinkPrompt: ReturnType<typeof vi.fn>;
   getPinCopyPrompt: ReturnType<typeof vi.fn>;
   getAffiliateQueriesPrompt: ReturnType<typeof vi.fn>;
@@ -85,11 +83,6 @@ export function makeMockCtx(): MockCtx {
     nextSlotFor: vi.fn(),
   } as unknown as Mocked<RecommenderService>;
 
-  const ideogram = {
-    isConfigured: vi.fn().mockReturnValue(true),
-    generate: vi.fn(),
-  } as unknown as Mocked<IdeogramClient>;
-
   const pinterest = {
     getAccessToken: vi.fn(),
     getTrendingKeywords: vi.fn(),
@@ -99,7 +92,7 @@ export function makeMockCtx(): MockCtx {
 
   const anthropic = {
     generateBlogDraft: vi.fn(),
-    generateAltText: vi.fn(),
+    analyzeImage: vi.fn(),
     generatePinCopy: vi.fn(),
     pickInterlinks: vi.fn(),
     suggestAffiliateQueries: vi.fn(),
@@ -126,7 +119,7 @@ export function makeMockCtx(): MockCtx {
   } as unknown as Mocked<Alerter>;
 
   const getBlogDraftPrompt = vi.fn().mockResolvedValue("system prompt");
-  const getAltTextPrompt = vi.fn().mockResolvedValue("alt text prompt");
+  const getImageAnalysisPrompt = vi.fn().mockResolvedValue("image analysis prompt");
   const getInterlinkPrompt = vi.fn().mockResolvedValue("interlink prompt");
   const getPinCopyPrompt = vi.fn().mockResolvedValue("pin copy prompt");
   const getAffiliateQueriesPrompt = vi.fn().mockResolvedValue("affiliate queries prompt");
@@ -141,7 +134,6 @@ export function makeMockCtx(): MockCtx {
     pinsQueue: pinsQueue as unknown as PinsQueueService,
     analytics: analytics as unknown as AnalyticsService,
     recommender: recommender as unknown as RecommenderService,
-    ideogram: ideogram as unknown as IdeogramClient,
     pinterest: pinterest as unknown as PinterestClient,
     anthropic: anthropic as unknown as AnthropicClient,
     wordpress: wordpress as unknown as WordpressClient,
@@ -149,7 +141,7 @@ export function makeMockCtx(): MockCtx {
     exif: exif as unknown as ExifStripper,
     alerter: alerter as unknown as Alerter,
     getBlogDraftPrompt,
-    getAltTextPrompt,
+    getImageAnalysisPrompt,
     getInterlinkPrompt,
     getPinCopyPrompt,
     getAffiliateQueriesPrompt,
@@ -163,7 +155,6 @@ export function makeMockCtx(): MockCtx {
     pinsQueue,
     analytics,
     recommender,
-    ideogram,
     pinterest,
     anthropic,
     wordpress,
@@ -171,7 +162,7 @@ export function makeMockCtx(): MockCtx {
     exif,
     alerter,
     getBlogDraftPrompt,
-    getAltTextPrompt,
+    getImageAnalysisPrompt,
     getInterlinkPrompt,
     getPinCopyPrompt,
     getAffiliateQueriesPrompt,

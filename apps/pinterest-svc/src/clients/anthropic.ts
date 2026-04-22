@@ -1,14 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import {
   AffiliateQueriesResultSchema,
-  AltTextResultSchema,
   BlogDraftSchema,
+  ImageAnalysisResultSchema,
   InterlinkResultSchema,
   PinCopyResultSchema,
   type AffiliateQueriesResult,
-  type AltTextRequest,
-  type AltTextResult,
   type BlogDraft,
+  type ImageAnalysisRequest,
+  type ImageAnalysisResult,
   type InterlinkRequest,
   type InterlinkResult,
   type PinCopyRequest,
@@ -100,34 +100,40 @@ export class AnthropicClient {
     }
   }
 
-  async generateAltText(input: AltTextRequest, systemPrompt: string): Promise<AltTextResult> {
-    const trace = langfuse?.trace({ name: "alt_text", input: { imageUrl: input.imageUrl } });
+  async analyzeImage(
+    input: ImageAnalysisRequest,
+    systemPrompt: string,
+  ): Promise<ImageAnalysisResult> {
+    const trace = langfuse?.trace({
+      name: "image_analysis",
+      input: { imageUrl: input.imageUrl, hasInstructions: !!input.instructions },
+    });
     const generation = trace?.generation({
       name: "claude.messages.create",
       model: this.model,
-      input: { systemPrompt, userInput: input },
+      input: { systemPrompt, userInput: { ...input, imageUrl: "(redacted)" } },
     });
 
     try {
+      const userText = [
+        `blog_title: ${input.blogTitle}`,
+        `primary_keyword: ${input.primaryKeyword}`,
+        `prompt_hint: ${input.promptHint || "(none)"}`,
+        `user_instructions: ${input.instructions ?? "(none)"}`,
+        "",
+        "Return only the JSON object.",
+      ].join("\n");
+
       const message = await this.client.messages.create({
         model: this.model,
-        max_tokens: 512,
+        max_tokens: 768,
         system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
         messages: [
           {
             role: "user",
             content: [
               { type: "image", source: { type: "url", url: input.imageUrl } },
-              {
-                type: "text",
-                text: [
-                  `blog_title: ${input.blogTitle}`,
-                  `primary_keyword: ${input.primaryKeyword}`,
-                  `prompt_hint: ${input.promptHint}`,
-                  "",
-                  "Return only the JSON object.",
-                ].join("\n"),
-              },
+              { type: "text", text: userText },
             ],
           },
         ],
@@ -137,14 +143,21 @@ export class AnthropicClient {
       if (!textBlock) throw new Error("Claude returned no text block");
 
       const json = extractJson(textBlock.text) as Record<string, unknown>;
-      const result = AltTextResultSchema.parse({
-        altText: json.alt_text ?? json.altText,
-        confidence: json.confidence,
+      const tagsRaw = Array.isArray(json.detected_tags)
+        ? json.detected_tags
+        : Array.isArray(json.detectedTags)
+          ? json.detectedTags
+          : [];
+      const result = ImageAnalysisResultSchema.parse({
+        title: json.title ?? "",
+        altText: json.alt_text ?? json.altText ?? "",
+        detectedTags: tagsRaw.map((t) => String(t).trim()).filter((t) => t.length > 0),
+        confidence: json.confidence ?? "medium",
         notes: json.notes,
       });
 
       generation?.end({
-        output: { confidence: result.confidence },
+        output: { confidence: result.confidence, tagCount: result.detectedTags.length },
         usage: { input: message.usage.input_tokens, output: message.usage.output_tokens },
       });
       trace?.update({ output: { confidence: result.confidence } });
@@ -175,6 +188,7 @@ export class AnthropicClient {
         `related_keywords: ${input.relatedKeywords.join(", ") || "(none)"}`,
         `image_alt_text: ${input.imageAltText ?? "(none)"}`,
         `variations_per_image: ${input.variationsPerImage}`,
+        `user_instructions: ${input.instructions ?? "(none)"}`,
         "",
         "Return only a single JSON object { imageUrl, variations: [{ title, description }, ...] }.",
       ].join("\n");

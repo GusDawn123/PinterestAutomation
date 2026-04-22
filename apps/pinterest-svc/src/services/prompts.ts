@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 const PROMPT_NAMES = [
   "blog_draft",
   "pin_copy",
-  "alt_text_generator",
+  "image_analysis",
   "interlink_picker",
   "affiliate_queries",
 ] as const;

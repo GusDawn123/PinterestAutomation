@@ -78,33 +78,71 @@ describe("AnthropicClient.generateBlogDraft", () => {
   });
 });
 
-describe("AnthropicClient.generateAltText", () => {
-  it("parses alt text JSON and passes image URL block", async () => {
+describe("AnthropicClient.analyzeImage", () => {
+  it("parses title + altText + detectedTags and passes image URL block", async () => {
     const fake = makeFakeAnthropic(
-      JSON.stringify({ alt_text: "A green reading nook with sunlight.", confidence: "high" }),
+      JSON.stringify({
+        title: "Morning light over a reading nook",
+        alt_text: "A green reading nook with sunlight.",
+        detected_tags: ["reading nook", "morning light", "plants"],
+        confidence: "high",
+      }),
     );
     const client = new AnthropicClient(fake, "claude-opus-4-7");
 
-    const result = await client.generateAltText(
+    const result = await client.analyzeImage(
       {
         imageUrl: "https://cdn.example.com/x.png",
         blogTitle: "Cozy ideas",
         primaryKeyword: "cozy reading nook",
         promptHint: "sunlit reading nook with plants",
       },
-      "you write alt text",
+      "you write image analysis",
     );
 
+    expect(result.title).toBe("Morning light over a reading nook");
     expect(result.altText).toBe("A green reading nook with sunlight.");
+    expect(result.detectedTags).toEqual(["reading nook", "morning light", "plants"]);
     expect(result.confidence).toBe("high");
 
     const createFn = fake.messages.create as unknown as ReturnType<typeof vi.fn>;
     const args = createFn.mock.calls[0]![0] as Parameters<typeof fake.messages.create>[0];
     const firstMessage = args.messages![0]!;
     expect(Array.isArray(firstMessage.content)).toBe(true);
-    const blocks = firstMessage.content as Array<{ type: string; source?: { url?: string } }>;
+    const blocks = firstMessage.content as Array<{ type: string; source?: { url?: string }; text?: string }>;
     const imageBlock = blocks.find((b) => b.type === "image");
     expect(imageBlock?.source?.url).toBe("https://cdn.example.com/x.png");
+    const textBlock = blocks.find((b) => b.type === "text");
+    expect(textBlock?.text).toContain("user_instructions: (none)");
+  });
+
+  it("threads user_instructions through the prompt when provided", async () => {
+    const fake = makeFakeAnthropic(
+      JSON.stringify({
+        title: "Punchier title",
+        alt_text: "alt",
+        detected_tags: ["one"],
+        confidence: "medium",
+      }),
+    );
+    const client = new AnthropicClient(fake, "claude-opus-4-7");
+
+    await client.analyzeImage(
+      {
+        imageUrl: "https://cdn.example.com/x.png",
+        blogTitle: "t",
+        primaryKeyword: "k",
+        promptHint: "",
+        instructions: "more whimsical",
+      },
+      "sys",
+    );
+
+    const createFn = fake.messages.create as unknown as ReturnType<typeof vi.fn>;
+    const args = createFn.mock.calls[0]![0] as Parameters<typeof fake.messages.create>[0];
+    const blocks = args.messages![0]!.content as Array<{ type: string; text?: string }>;
+    const textBlock = blocks.find((b) => b.type === "text");
+    expect(textBlock?.text).toContain("user_instructions: more whimsical");
   });
 });
 

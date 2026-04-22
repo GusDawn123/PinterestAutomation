@@ -20,7 +20,14 @@ const RefreshIcon = () => (
 
 export default function PinsApprovalPage() {
   return (
-    <Suspense fallback={<div className="page-inner"><div className="skeleton" style={{ height: 56, borderRadius: 12, marginBottom: 28 }} /><div className="skeleton" style={{ height: 300 }} /></div>}>
+    <Suspense
+      fallback={
+        <div className="page-inner">
+          <div className="skeleton" style={{ height: 56, borderRadius: 12, marginBottom: 28 }} />
+          <div className="skeleton" style={{ height: 300 }} />
+        </div>
+      }
+    >
       <PinsApproval />
     </Suspense>
   );
@@ -35,6 +42,7 @@ function PinsApproval() {
 
   const [payload, setPayload] = useState<PinsApprovalPayload | null>(null);
   const [choices, setChoices] = useState<Record<number, number>>({});
+  const [regenPrompts, setRegenPrompts] = useState<Record<number, string>>({});
   const [autoPost, setAutoPost] = useState(true);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -58,15 +66,23 @@ function PinsApproval() {
   }, [approvalId]);
 
   const totalPins = payload?.pins.length ?? 0;
-  const allUploaded = useMemo(() => !!payload && payload.pins.length > 0 && payload.pins.every((p) => !!p.composedImageUrl), [payload]);
-  const allChosen = useMemo(() => totalPins > 0 && Object.keys(choices).length === totalPins, [totalPins, choices]);
+  const allUploaded = useMemo(
+    () => !!payload && payload.pins.length > 0 && payload.pins.every((p) => !!p.composedImageUrl),
+    [payload],
+  );
+  const allChosen = useMemo(
+    () => totalPins > 0 && Object.keys(choices).length === totalPins,
+    [totalPins, choices],
+  );
 
   async function handleUpload(pinIndex: number, file: File) {
     if (!workflowRunId) return;
     setUploading(pinIndex);
     try {
       const { pin } = await api.uploadPin(workflowRunId, pinIndex, file);
-      setPayload((prev) => prev ? { ...prev, pins: prev.pins.map((p) => (p.pinIndex === pinIndex ? pin : p)) } : prev);
+      setPayload((prev) =>
+        prev ? { ...prev, pins: prev.pins.map((p) => (p.pinIndex === pinIndex ? pin : p)) } : prev,
+      );
       toast(`Pin #${pinIndex + 1} uploaded`);
     } catch (e) {
       toast((e as Error).message, "err");
@@ -77,12 +93,18 @@ function PinsApproval() {
 
   async function handleRegenerate(pinIndex: number) {
     if (!workflowRunId) return;
+    const instructions = (regenPrompts[pinIndex] ?? "").trim();
     setRegenerating(pinIndex);
     try {
-      const { pin } = await api.regeneratePin(workflowRunId, pinIndex);
-      setPayload((prev) => prev ? { ...prev, pins: prev.pins.map((p) => (p.pinIndex === pinIndex ? pin : p)) } : prev);
+      const { pin } = await api.regeneratePin(workflowRunId, pinIndex, {
+        ...(instructions ? { instructions } : {}),
+      });
+      setPayload((prev) =>
+        prev ? { ...prev, pins: prev.pins.map((p) => (p.pinIndex === pinIndex ? pin : p)) } : prev,
+      );
       setChoices((prev) => ({ ...prev, [pinIndex]: 0 }));
-      toast(`Regenerated copy for pin #${pinIndex + 1}`);
+      setRegenPrompts((prev) => ({ ...prev, [pinIndex]: "" }));
+      toast(`Pin #${pinIndex + 1}: rewrote copy`);
     } catch (e) {
       toast((e as Error).message, "err");
     } finally {
@@ -152,8 +174,11 @@ function PinsApproval() {
 
       <div className="page-header">
         <div className="page-eyebrow">Stage 5 of 6</div>
-        <h1 className="page-title">Upload <em>pins</em></h1>
-        <div className="page-sub">Design each pin in Canva and upload the PNG/JPG. Pick a copy variation per pin.</div>
+        <h1 className="page-title">Pick <em>copy</em>, then upload the pin</h1>
+        <div className="page-sub">
+          Claude wrote a few title + description options for each pin. Pick the one you like (or regenerate with
+          instructions). Take the final text to Canva, build your pin, then drop it back here.
+        </div>
       </div>
 
       {error && <div style={{ padding: "12px 16px", background: "var(--red-soft)", color: "var(--red)", borderRadius: 10, marginBottom: 20, fontSize: 13 }}>{error}</div>}
@@ -168,72 +193,106 @@ function PinsApproval() {
           const uploaded = !!pin.composedImageUrl;
           const isUploading = uploading === pin.pinIndex;
           const isRegen = regenerating === pin.pinIndex;
+          const chosenIdx = choices[pin.pinIndex] ?? 0;
+          const chosen = pin.variations[chosenIdx];
           return (
             <div key={pin.pinIndex} className="pin-slot">
-              <div className="pin-layout">
-                <div>
-                  <PinDropZone
-                    imageUrl={pin.composedImageUrl}
-                    pinIndex={pin.pinIndex}
-                    onFile={(f) => handleUpload(pin.pinIndex, f)}
-                    disabled={isUploading || submitting || isRegen}
-                    uploading={isUploading}
-                  />
-                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
-                    <button
-                      type="button"
-                      className="btn btn-ghost"
-                      style={{ fontSize: 12, padding: "5px 10px" }}
-                      onClick={() => handleRegenerate(pin.pinIndex)}
-                      disabled={isRegen || submitting || isUploading}
-                    >
-                      {isRegen ? "Regenerating…" : <><RefreshIcon /> Regenerate copy</>}
-                    </button>
-                  </div>
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                <div style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>Pin {pin.pinIndex + 1}</div>
+                {uploaded ? (
+                  <span className="chip good">✓ uploaded</span>
+                ) : chosen ? (
+                  <span className="chip warn">copy picked · upload next</span>
+                ) : (
+                  <span className="chip plain">pick copy first</span>
+                )}
+              </div>
 
-                <div>
-                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ink-muted)", marginBottom: 10 }}>
-                    Pin #{pin.pinIndex + 1} · choose variation
-                  </div>
-                  {pin.variations.map((v, idx) => {
-                    const picked = choices[pin.pinIndex] === idx;
-                    return (
-                      <button
-                        key={idx}
-                        type="button"
-                        className={`copy-variation ${picked ? "selected" : ""}`}
-                        onClick={() => setChoices((prev) => ({ ...prev, [pin.pinIndex]: idx }))}
-                      >
-                        <div className="v-num">Variation {idx + 1}</div>
-                        <div className="v-text">{v.title}</div>
-                        <div style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 13, color: "var(--ink-muted)", marginTop: 4 }}>{v.description}</div>
-                      </button>
-                    );
-                  })}
+              {/* Step 1 — pick copy */}
+              <div style={{ marginBottom: 18 }}>
+                <div className="field-label">
+                  <span>1 · Pick copy variation</span>
+                  <span className="field-hint">{pin.variations.length} options from Claude</span>
+                </div>
+                {pin.variations.map((v, vi) => {
+                  const picked = chosenIdx === vi;
+                  return (
+                    <button
+                      key={vi}
+                      type="button"
+                      className={`copy-variation ${picked ? "selected" : ""}`}
+                      onClick={() => setChoices((prev) => ({ ...prev, [pin.pinIndex]: vi }))}
+                    >
+                      <div className="v-num">v{vi + 1}</div>
+                      <div className="v-text">{v.title}</div>
+                      <div style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 13, color: "var(--ink-muted)", marginTop: 4 }}>
+                        {v.description}
+                      </div>
+                    </button>
+                  );
+                })}
+
+                <div className="field-label" style={{ marginTop: 12 }}>
+                  <span>Regenerate with instructions · optional</span>
+                  <span className="field-hint">"make it punchier", "emphasize the linen"…</span>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    className="field"
+                    value={regenPrompts[pin.pinIndex] ?? ""}
+                    placeholder="Leave blank for a plain regenerate"
+                    onChange={(e) => setRegenPrompts((prev) => ({ ...prev, [pin.pinIndex]: e.target.value }))}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    style={{ whiteSpace: "nowrap" }}
+                    onClick={() => handleRegenerate(pin.pinIndex)}
+                    disabled={isRegen || submitting || isUploading}
+                  >
+                    {isRegen ? "Regenerating…" : <><RefreshIcon /> Regenerate</>}
+                  </button>
                 </div>
               </div>
 
-              {!uploaded && (
-                <div style={{ marginTop: 10, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent-ink)", background: "var(--accent-soft)", padding: "6px 10px", borderRadius: 6 }}>
-                  Upload a composed image to continue
+              {/* Step 2 — upload composed pin */}
+              <div>
+                <div className="field-label">
+                  <span>2 · Upload composed pin</span>
+                  <span className="field-hint">Copy the text above → build in Canva → drop the image here</span>
                 </div>
-              )}
+                <PinDropZone
+                  imageUrl={pin.composedImageUrl}
+                  chosenTitle={chosen?.title ?? ""}
+                  onFile={(f) => handleUpload(pin.pinIndex, f)}
+                  disabled={isUploading || submitting || isRegen}
+                  uploading={isUploading}
+                />
+              </div>
             </div>
           );
         })}
       </div>
 
-      <div style={{ marginBottom: 80 }}>
-        <label className="switch" style={{ cursor: "pointer" }}>
+      <div style={{ marginBottom: 80, display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", border: "1px solid var(--border)", borderRadius: 12, background: "var(--bg-card)" }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontWeight: 500 }}>Auto-post at scheduled time</div>
+          <div style={{ fontSize: 12, color: "var(--ink-muted)", marginTop: 2 }}>
+            If off, the scheduler pauses for final confirm.
+          </div>
+        </div>
+        <div className="switch">
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-muted)" }}>
+            {autoPost ? "ON" : "OFF"}
+          </span>
           <button
             type="button"
             className={`toggle ${autoPost ? "on" : ""}`}
             onClick={() => setAutoPost((v) => !v)}
             aria-pressed={autoPost}
           />
-          <span style={{ fontSize: 13 }}>Auto-schedule to best times (uses analytics slots)</span>
-        </label>
+        </div>
       </div>
 
       <ActionBar
@@ -250,13 +309,13 @@ function PinsApproval() {
 
 function PinDropZone({
   imageUrl,
-  pinIndex,
+  chosenTitle,
   onFile,
   disabled,
   uploading,
 }: {
   imageUrl: string;
-  pinIndex: number;
+  chosenTitle: string;
   onFile: (f: File) => void;
   disabled: boolean;
   uploading: boolean;
@@ -270,28 +329,54 @@ function PinDropZone({
         type="file"
         accept="image/png,image/jpeg,image/webp"
         style={{ display: "none" }}
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) onFile(f);
+          e.target.value = "";
+        }}
       />
-      <div
-        className={`pin-drop ${hasImg ? "has-image" : ""}`}
-        onClick={() => !disabled && ref.current?.click()}
-      >
-        {hasImg ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={imageUrl} alt={`pin ${pinIndex}`} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10 }} />
-        ) : (
-          <>
-            <div className="icon-big">P</div>
-            <div className="lbl">{uploading ? "Uploading…" : "Upload composed pin"}</div>
-            <div className="sub-lbl">PNG · JPG · WEBP</div>
-          </>
-        )}
+      <div className="pin-layout">
+        <div
+          className={`pin-drop ${hasImg ? "has-image" : ""}`}
+          onClick={() => !disabled && ref.current?.click()}
+        >
+          {hasImg ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={imageUrl}
+              alt={chosenTitle || "composed pin"}
+              style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10 }}
+            />
+          ) : (
+            <>
+              <div className="icon-big">↑</div>
+              <div className="lbl">{uploading ? "Uploading…" : "Drop composed pin here"}</div>
+              <div className="sub-lbl">1000 × 1500 · png / jpg</div>
+            </>
+          )}
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+          {hasImg && (
+            <>
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-muted)", textTransform: "uppercase", letterSpacing: ".06em" }}>
+                preview on pin
+              </div>
+              <div style={{ fontFamily: "var(--font-serif)", fontSize: 15, lineHeight: 1.3, color: "var(--ink-soft)" }}>
+                {chosenTitle || "—"}
+              </div>
+            </>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={disabled}
+            onClick={() => ref.current?.click()}
+            style={{ alignSelf: "flex-start" }}
+          >
+            <UploadIcon /> {hasImg ? "Replace upload" : "Upload pin"}
+          </button>
+        </div>
       </div>
-      {hasImg && (
-        <button type="button" className="btn btn-ghost" style={{ fontSize: 12, padding: "5px 10px", marginTop: 6, width: "100%", justifyContent: "center" }} disabled={disabled} onClick={() => ref.current?.click()}>
-          <UploadIcon /> Replace image
-        </button>
-      )}
     </>
   );
 }

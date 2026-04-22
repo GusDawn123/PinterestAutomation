@@ -15,6 +15,7 @@ const IdParam = z.object({ id: z.string().uuid() });
 
 const RegeneratePinSchema = z.object({
   pinIndex: z.number().int().nonnegative(),
+  instructions: z.string().max(500).optional(),
 });
 
 const PinIndexParam = z.object({
@@ -47,7 +48,14 @@ export async function pinRoutes(app: FastifyInstance, opts: { ctx: ServiceContex
     if (!blogDraft) return reply.code(400).send({ error: "no_draft_for_workflow" });
 
     const chosenImages = (blogDraft.chosenImages as
-      | Array<{ slotPosition: number; imageUrl: string; prompt: string; altText?: string }>
+      | Array<{
+          slotPosition: number;
+          imageUrl: string;
+          prompt: string;
+          title?: string;
+          altText?: string;
+          detectedTags?: string[];
+        }>
       | null) ?? [];
     if (chosenImages.length === 0) {
       return reply.code(400).send({ error: "no_chosen_images" });
@@ -118,7 +126,10 @@ export async function pinRoutes(app: FastifyInstance, opts: { ctx: ServiceContex
 
   app.post("/workflows/:id/pins/regenerate", async (req, reply) => {
     const { id } = IdParam.parse(req.params);
-    const { pinIndex } = RegeneratePinSchema.parse(req.body);
+    const { pinIndex, instructions } = RegeneratePinSchema.parse(req.body);
+
+    const pinsRun = await ctx.workflow.get(id);
+    if (!pinsRun) return reply.code(404).send({ error: "workflow_not_found" });
 
     const approvals = await ctx.approvals.listByRun(id);
     const pending = approvals.find((a) => a.kind === "pins" && a.status === "pending");
@@ -127,17 +138,38 @@ export async function pinRoutes(app: FastifyInstance, opts: { ctx: ServiceContex
     const payload = pending.payload as PinsApprovalPayload;
     const idx = payload.pins.findIndex((p) => p.pinIndex === pinIndex);
     if (idx === -1) return reply.code(400).send({ error: "pin_not_found" });
-
     const pin = payload.pins[idx]!;
+
+    // Pin workflows track the originating blog workflow in their context, so we can
+    // feed real blog headline + keyword + alt text back into the regenerate call.
+    const pinsCtx = (pinsRun.context as { blogWorkflowRunId?: string } | null) ?? null;
+    let blogHeadline = "";
+    let primaryKeyword = "";
+    let imageAltText: string | undefined;
+    if (pinsCtx?.blogWorkflowRunId) {
+      const blogDraft = await ctx.workflow.getBlogDraftByRun(pinsCtx.blogWorkflowRunId);
+      if (blogDraft) {
+        blogHeadline = (blogDraft.draft as { headline?: string }).headline ?? "";
+        primaryKeyword = blogDraft.keyword ?? "";
+        const chosen = (blogDraft.chosenImages as
+          | Array<{ imageUrl: string; altText?: string; title?: string }>
+          | null) ?? [];
+        const match = chosen.find((c) => c.imageUrl === pin.sourceImageUrl);
+        if (match) imageAltText = match.altText ?? match.title ?? undefined;
+      }
+    }
+
     const prompt = await ctx.getPinCopyPrompt();
     const copy = await ctx.anthropic.generatePinCopy(
       {
-        blogHeadline: "regenerate",
+        blogHeadline: blogHeadline || "regenerate",
         blogUrl: payload.blogUrl,
-        primaryKeyword: "",
+        primaryKeyword,
         relatedKeywords: [],
         imageUrl: pin.sourceImageUrl,
+        ...(imageAltText ? { imageAltText } : {}),
         variationsPerImage: 3,
+        ...(instructions ? { instructions } : {}),
       },
       prompt,
     );

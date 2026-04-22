@@ -5,7 +5,8 @@
       "name": "carmen-web",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--filter", "@pa/carmen-web", "dev"],
-      "port": 3000
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

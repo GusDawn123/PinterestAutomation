@@ -6,10 +6,10 @@ let mock: MockCtx;
 const app = await buildServer({ ctx: (mock = makeMockCtx()).ctx });
 
 beforeEach(() => {
-  mock.anthropic.generateAltText.mockReset();
+  mock.anthropic.analyzeImage.mockReset();
   mock.anthropic.pickInterlinks.mockReset();
   mock.undetectable.humanize.mockReset();
-  mock.getAltTextPrompt.mockResolvedValue("alt text prompt");
+  mock.getImageAnalysisPrompt.mockResolvedValue("image analysis prompt");
   mock.getInterlinkPrompt.mockResolvedValue("interlink prompt");
 });
 
@@ -17,16 +17,18 @@ afterAll(async () => {
   await app.close();
 });
 
-describe("POST /alt-text", () => {
+describe("POST /image-analysis", () => {
   it("passes prompt + body to Anthropic client", async () => {
-    mock.anthropic.generateAltText.mockResolvedValue({
+    mock.anthropic.analyzeImage.mockResolvedValue({
+      title: "Morning reading nook",
       altText: "A reading nook",
+      detectedTags: ["linen", "morning light"],
       confidence: "high",
     });
 
     const res = await app.inject({
       method: "POST",
-      url: "/alt-text",
+      url: "/image-analysis",
       payload: {
         imageUrl: "https://cdn.example.com/a.png",
         blogTitle: "Cozy ideas",
@@ -35,11 +37,12 @@ describe("POST /alt-text", () => {
       },
     });
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { altText: string };
+    const body = res.json() as { title: string; altText: string };
+    expect(body.title).toBe("Morning reading nook");
     expect(body.altText).toBe("A reading nook");
-    expect(mock.anthropic.generateAltText).toHaveBeenCalledWith(
+    expect(mock.anthropic.analyzeImage).toHaveBeenCalledWith(
       expect.objectContaining({ primaryKeyword: "cozy" }),
-      "alt text prompt",
+      "image analysis prompt",
     );
   });
 });

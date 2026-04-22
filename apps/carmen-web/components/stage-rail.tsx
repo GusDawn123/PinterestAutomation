@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 const STAGES = [
   { href: "/approvals/keyword",    n: 1, label: "Keyword",    sub: "pick one" },
   { href: "/approvals/draft",      n: 2, label: "Draft",      sub: "review copy" },
-  { href: "/approvals/images",     n: 3, label: "Images",     sub: "ideogram" },
+  { href: "/approvals/images",     n: 3, label: "Images",     sub: "upload + ai" },
   { href: "/approvals/affiliates", n: 4, label: "Affiliates", sub: "products" },
   { href: "/approvals/pins",       n: 5, label: "Pins",       sub: "upload" },
   { href: "/approvals/publish",    n: 6, label: "Publish",    sub: "wordpress" },

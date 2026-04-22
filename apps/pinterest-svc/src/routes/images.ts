@@ -16,75 +16,65 @@ const SlotParam = z.object({
   slotPosition: z.coerce.number().int().nonnegative(),
 });
 
-async function downloadImageBuffer(
-  url: string,
-  ctx: ServiceContext,
-): Promise<{ data: Buffer; contentType: string }> {
-  if (ctx.downloadImage) return ctx.downloadImage(url);
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to download image from Ideogram: ${res.status}`);
-  const contentType = res.headers.get("content-type") ?? "image/jpeg";
-  return { data: Buffer.from(await res.arrayBuffer()), contentType };
-}
+const ReanalyzeBody = z.object({
+  instructions: z.string().max(500).optional(),
+});
 
-async function generateAndUploadSlot(
+async function analyzeAndPatchSlot(
   app: FastifyInstance,
   ctx: ServiceContext,
-  slot: { position: number; promptHint: string },
-  blogDraftKeyword: string,
-  blogDraftHeadline: string,
+  existing: ImageSlotDraft,
+  uploadedImageUrl: string,
+  blogHeadline: string,
+  blogKeyword: string,
+  instructions?: string,
 ): Promise<ImageSlotDraft> {
-  const generated = await ctx.ideogram.generate({ prompt: slot.promptHint });
-  const downloaded = await downloadImageBuffer(generated.imageUrl, ctx);
-  const converted = await convertPngToJpeg(downloaded.data, downloaded.contentType);
-  const extHint = converted.contentType === "image/jpeg" ? "jpg" : "png";
-  const stripped = await ctx.exif.stripBuffer(converted.data, extHint);
-
-  const uploaded = await ctx.wordpress.uploadMedia({
-    data: stripped,
-    filename: `slot-${slot.position}-ideogram.jpg`,
-    contentType: converted.contentType,
-    altText: slot.promptHint,
-  });
-
-  let altTextSuggestion: string | undefined;
   try {
-    const altPrompt = await ctx.getAltTextPrompt();
-    const alt = await ctx.anthropic.generateAltText(
+    const prompt = await ctx.getImageAnalysisPrompt();
+    const analysis = await ctx.anthropic.analyzeImage(
       {
-        imageUrl: uploaded.sourceUrl,
-        blogTitle: blogDraftHeadline,
-        primaryKeyword: blogDraftKeyword,
-        promptHint: slot.promptHint,
+        imageUrl: uploadedImageUrl,
+        blogTitle: blogHeadline,
+        primaryKeyword: blogKeyword,
+        promptHint: existing.promptHint,
+        ...(instructions ? { instructions } : {}),
       },
-      altPrompt,
+      prompt,
     );
-    altTextSuggestion = alt.altText;
+    return {
+      slotPosition: existing.slotPosition,
+      promptHint: existing.promptHint,
+      uploadedImageUrl,
+      title: analysis.title,
+      altText: analysis.altText,
+      detectedTags: analysis.detectedTags,
+    };
   } catch (err) {
-    app.log.warn({ err, slotPosition: slot.position }, "alt_text_generation_failed");
+    app.log.warn(
+      { err, slotPosition: existing.slotPosition },
+      "image_analysis_failed",
+    );
+    // Keep the upload, leave copy fields empty so Carmen can fill in or retry.
+    return {
+      slotPosition: existing.slotPosition,
+      promptHint: existing.promptHint,
+      uploadedImageUrl,
+      title: existing.title,
+      altText: existing.altText,
+      detectedTags: existing.detectedTags,
+    };
   }
-
-  return {
-    slotPosition: slot.position,
-    promptHint: slot.promptHint,
-    generatedImageUrl: uploaded.sourceUrl,
-    ideogramSeed: generated.seed,
-    ...(altTextSuggestion ? { altTextSuggestion } : {}),
-  };
 }
 
 export async function imageRoutes(app: FastifyInstance, opts: { ctx: ServiceContext }) {
   const { ctx } = opts;
 
+  // Stage 3 begins: seed empty upload slots from the blog draft. No image generation.
   app.post("/workflows/:id/images/start", async (req, reply) => {
     const { id } = IdParam.parse(req.params);
     const run = await ctx.workflow.get(id);
     if (!run) return reply.code(404).send({ error: "workflow_not_found" });
     if (run.kind !== "blog") return reply.code(400).send({ error: "not_a_blog_workflow" });
-
-    if (!ctx.ideogram.isConfigured()) {
-      return reply.code(503).send({ error: "ideogram_not_configured" });
-    }
 
     const blogDraft = await ctx.workflow.getBlogDraftByRun(id);
     if (!blogDraft) return reply.code(400).send({ error: "no_draft_for_workflow" });
@@ -93,8 +83,8 @@ export async function imageRoutes(app: FastifyInstance, opts: { ctx: ServiceCont
       headline: string;
       imageSlots?: Array<{ position: number; promptHint: string }>;
     };
-    const slots = draft.imageSlots ?? [];
-    if (slots.length === 0) {
+    const draftSlots = draft.imageSlots ?? [];
+    if (draftSlots.length === 0) {
       return reply.code(400).send({ error: "draft_has_no_image_slots" });
     }
 
@@ -113,20 +103,16 @@ export async function imageRoutes(app: FastifyInstance, opts: { ctx: ServiceCont
       await ctx.approvals.decide({ approvalId: draftApproval.id, status: "approved" });
     }
 
-    const slotDrafts: ImageSlotDraft[] = await Promise.all(
-      slots.map((s) =>
-        generateAndUploadSlot(app, ctx, s, blogDraft.keyword, draft.headline).catch((err) => {
-          app.log.error({ err, slotPosition: s.position }, "ideogram_slot_generation_failed");
-          return {
-            slotPosition: s.position,
-            promptHint: s.promptHint,
-            generatedImageUrl: "",
-          } satisfies ImageSlotDraft;
-        }),
-      ),
-    );
+    const slots: ImageSlotDraft[] = draftSlots.map((s) => ({
+      slotPosition: s.position,
+      promptHint: s.promptHint,
+      uploadedImageUrl: "",
+      title: "",
+      altText: "",
+      detectedTags: [],
+    }));
 
-    const payload: ImagesApprovalPayload = { slots: slotDrafts };
+    const payload: ImagesApprovalPayload = { slots };
     const approval = await ctx.approvals.create({
       workflowRunId: id,
       kind: "images",
@@ -138,15 +124,21 @@ export async function imageRoutes(app: FastifyInstance, opts: { ctx: ServiceCont
       status: "awaiting_approval",
     });
 
-    return { workflowRunId: id, approvalId: approval.id, slots: slotDrafts };
+    return { workflowRunId: id, approvalId: approval.id, slots };
   });
 
-  app.post("/workflows/:id/images/:slotPosition/regenerate", async (req, reply) => {
+  // Carmen uploads her own photography for a slot.
+  // Flow: multipart file → JPEG convert → EXIF strip → WordPress upload → Claude vision analysis.
+  app.post("/workflows/:id/images/:slotPosition/upload", async (req, reply) => {
     const { id, slotPosition } = SlotParam.parse(req.params);
 
-    if (!ctx.ideogram.isConfigured()) {
-      return reply.code(503).send({ error: "ideogram_not_configured" });
-    }
+    const file = await (req as unknown as {
+      file: () => Promise<
+        | { filename: string; mimetype: string; toBuffer: () => Promise<Buffer> }
+        | undefined
+      >;
+    }).file();
+    if (!file) return reply.code(400).send({ error: "no_file" });
 
     const approvals = await ctx.approvals.listByRun(id);
     const pending = approvals.find((a) => a.kind === "images" && a.status === "pending");
@@ -158,24 +150,108 @@ export async function imageRoutes(app: FastifyInstance, opts: { ctx: ServiceCont
 
     const blogDraft = await ctx.workflow.getBlogDraftByRun(id);
     if (!blogDraft) return reply.code(400).send({ error: "no_draft_for_workflow" });
-
     const draft = blogDraft.draft as { headline: string };
-    const slot = payload.slots[idx]!;
 
-    const refreshed = await generateAndUploadSlot(
+    const raw = await file.toBuffer();
+    const converted = await convertPngToJpeg(raw, file.mimetype || "image/jpeg");
+    const extHint = converted.contentType === "image/jpeg" ? "jpg" : "png";
+    const stripped = await ctx.exif.stripBuffer(converted.data, extHint);
+
+    const slot = payload.slots[idx]!;
+    const filenameBase = file.filename?.replace(/\.(png|webp|jpeg|jpg)$/i, "") || `slot-${slotPosition}`;
+    const filename =
+      converted.contentType === "image/jpeg" ? `${filenameBase}.jpg` : `${filenameBase}.png`;
+
+    const uploaded = await ctx.wordpress.uploadMedia({
+      data: stripped,
+      filename,
+      contentType: converted.contentType,
+      altText: slot.promptHint || `image slot ${slotPosition}`,
+    });
+
+    const refreshed = await analyzeAndPatchSlot(
       app,
       ctx,
-      { position: slot.slotPosition, promptHint: slot.promptHint },
-      blogDraft.keyword,
+      slot,
+      uploaded.sourceUrl,
       draft.headline,
+      blogDraft.keyword,
     );
 
     const updated: ImagesApprovalPayload = {
       slots: payload.slots.map((s, i) => (i === idx ? refreshed : s)),
     };
-
     await ctx.approvals.updatePayload(pending.id, updated);
-    return { slot: updated.slots[idx] };
+    return { slot: refreshed };
+  });
+
+  // Re-run Claude vision on the slot's existing upload (no re-upload).
+  // Optional `instructions` lets Carmen steer ("more whimsical", "focus on the lamp").
+  app.post("/workflows/:id/images/:slotPosition/reanalyze", async (req, reply) => {
+    const { id, slotPosition } = SlotParam.parse(req.params);
+    const { instructions } = ReanalyzeBody.parse(req.body ?? {});
+
+    const approvals = await ctx.approvals.listByRun(id);
+    const pending = approvals.find((a) => a.kind === "images" && a.status === "pending");
+    if (!pending) return reply.code(404).send({ error: "no_pending_images_approval" });
+
+    const payload = pending.payload as ImagesApprovalPayload;
+    const idx = payload.slots.findIndex((s) => s.slotPosition === slotPosition);
+    if (idx === -1) return reply.code(400).send({ error: "slot_not_found" });
+
+    const slot = payload.slots[idx]!;
+    if (!slot.uploadedImageUrl) {
+      return reply.code(400).send({ error: "slot_has_no_upload" });
+    }
+
+    const blogDraft = await ctx.workflow.getBlogDraftByRun(id);
+    if (!blogDraft) return reply.code(400).send({ error: "no_draft_for_workflow" });
+    const draft = blogDraft.draft as { headline: string };
+
+    const refreshed = await analyzeAndPatchSlot(
+      app,
+      ctx,
+      slot,
+      slot.uploadedImageUrl,
+      draft.headline,
+      blogDraft.keyword,
+      instructions,
+    );
+
+    const updated: ImagesApprovalPayload = {
+      slots: payload.slots.map((s, i) => (i === idx ? refreshed : s)),
+    };
+    await ctx.approvals.updatePayload(pending.id, updated);
+    return { slot: refreshed };
+  });
+
+  // Clear a slot's upload (lets Carmen start over before approving).
+  app.delete("/workflows/:id/images/:slotPosition/upload", async (req, reply) => {
+    const { id, slotPosition } = SlotParam.parse(req.params);
+
+    const approvals = await ctx.approvals.listByRun(id);
+    const pending = approvals.find((a) => a.kind === "images" && a.status === "pending");
+    if (!pending) return reply.code(404).send({ error: "no_pending_images_approval" });
+
+    const payload = pending.payload as ImagesApprovalPayload;
+    const idx = payload.slots.findIndex((s) => s.slotPosition === slotPosition);
+    if (idx === -1) return reply.code(400).send({ error: "slot_not_found" });
+
+    const slot = payload.slots[idx]!;
+    const cleared: ImageSlotDraft = {
+      slotPosition: slot.slotPosition,
+      promptHint: slot.promptHint,
+      uploadedImageUrl: "",
+      title: "",
+      altText: "",
+      detectedTags: [],
+    };
+
+    const updated: ImagesApprovalPayload = {
+      slots: payload.slots.map((s, i) => (i === idx ? cleared : s)),
+    };
+    await ctx.approvals.updatePayload(pending.id, updated);
+    return { slot: cleared };
   });
 
   app.post("/workflows/:id/images/decide", async (req, reply) => {
@@ -195,25 +271,26 @@ export async function imageRoutes(app: FastifyInstance, opts: { ctx: ServiceCont
     const payload = pending.payload as ImagesApprovalPayload;
 
     for (const slot of payload.slots) {
-      if (!slot.generatedImageUrl) {
+      if (!slot.uploadedImageUrl) {
         return reply
           .code(400)
-          .send({ error: "image_not_generated", slotPosition: slot.slotPosition });
+          .send({ error: "image_not_uploaded", slotPosition: slot.slotPosition });
       }
     }
 
     const overrideByPos = new Map(
-      parsed.slots.map((s) => [s.slotPosition, s.altTextOverride]),
+      parsed.slots.map((s) => [s.slotPosition, { title: s.titleOverride, alt: s.altTextOverride }]),
     );
 
     const chosen: ChosenImage[] = payload.slots.map((slot) => {
       const override = overrideByPos.get(slot.slotPosition);
-      const altText = override ?? slot.altTextSuggestion;
       return {
         slotPosition: slot.slotPosition,
-        imageUrl: slot.generatedImageUrl,
+        imageUrl: slot.uploadedImageUrl,
         prompt: slot.promptHint,
-        ...(altText ? { altText } : {}),
+        title: override?.title ?? slot.title,
+        altText: override?.alt ?? slot.altText,
+        detectedTags: slot.detectedTags,
       };
     });
 

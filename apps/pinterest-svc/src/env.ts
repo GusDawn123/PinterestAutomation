@@ -49,9 +49,6 @@ const schema = z.object({
   DISCORD_ALERT_WEBHOOK_URL: z.string().url().optional(),
   DISCORD_APPROVAL_CHANNEL_ID: z.string().optional(),
 
-  IDEOGRAM_API_KEY: z.string().optional(),
-  MONTHLY_IDEOGRAM_SPEND_CAP_USD: z.coerce.number().positive().default(60),
-
   PINTEREST_SVC_INTERNAL_TOKEN: z.string().default("change_me_shared_secret"),
 
   SCHEDULER_AUTO_POST: z

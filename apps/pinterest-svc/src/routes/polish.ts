@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import {
-  AltTextRequestSchema,
   HumanizeRequestSchema,
+  ImageAnalysisRequestSchema,
   InterlinkRequestSchema,
 } from "@pa/shared-types";
 import { env } from "../env.js";
@@ -10,10 +10,10 @@ import type { ServiceContext } from "../context.js";
 export async function polishRoutes(app: FastifyInstance, opts: { ctx: ServiceContext }) {
   const { ctx } = opts;
 
-  app.post("/alt-text", async (req) => {
-    const body = AltTextRequestSchema.parse(req.body);
-    const systemPrompt = await ctx.getAltTextPrompt();
-    return ctx.anthropic.generateAltText(body, systemPrompt);
+  app.post("/image-analysis", async (req) => {
+    const body = ImageAnalysisRequestSchema.parse(req.body);
+    const systemPrompt = await ctx.getImageAnalysisPrompt();
+    return ctx.anthropic.analyzeImage(body, systemPrompt);
   });
 
   app.post("/interlinks", async (req) => {

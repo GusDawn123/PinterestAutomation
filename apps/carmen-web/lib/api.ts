@@ -77,10 +77,38 @@ export const api = {
       { method: "POST" },
     ),
 
-  regenerateImage: (workflowRunId: string, slotPosition: number) =>
+  uploadImage: async (workflowRunId: string, slotPosition: number, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await fetch(
+      `${BASE}/workflows/${workflowRunId}/images/${slotPosition}/upload`,
+      { method: "POST", body: form, cache: "no-store" },
+    );
+    if (!res.ok) {
+      throw new Error(
+        `pinterest-svc /images/${slotPosition}/upload ${res.status}: ${await res.text()}`,
+      );
+    }
+    return (await res.json()) as { slot: ImageSlotDraft };
+  },
+
+  reanalyzeImage: (
+    workflowRunId: string,
+    slotPosition: number,
+    body: { instructions?: string } = {},
+  ) =>
     fetchSvc<{ slot: ImageSlotDraft }>(
-      `/workflows/${workflowRunId}/images/${slotPosition}/regenerate`,
-      { method: "POST" },
+      `/workflows/${workflowRunId}/images/${slotPosition}/reanalyze`,
+      {
+        method: "POST",
+        body: JSON.stringify(body),
+      },
+    ),
+
+  clearImage: (workflowRunId: string, slotPosition: number) =>
+    fetchSvc<{ slot: ImageSlotDraft }>(
+      `/workflows/${workflowRunId}/images/${slotPosition}/upload`,
+      { method: "DELETE" },
     ),
 
   decideImages: (workflowRunId: string, decision: ImagesApprovalDecision) =>
@@ -122,12 +150,19 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  regeneratePin: (workflowRunId: string, pinIndex: number) =>
+  regeneratePin: (
+    workflowRunId: string,
+    pinIndex: number,
+    opts: { instructions?: string } = {},
+  ) =>
     fetchSvc<{ pin: PinsApprovalPayload["pins"][number] }>(
       `/workflows/${workflowRunId}/pins/regenerate`,
       {
         method: "POST",
-        body: JSON.stringify({ pinIndex }),
+        body: JSON.stringify({
+          pinIndex,
+          ...(opts.instructions ? { instructions: opts.instructions } : {}),
+        }),
       },
     ),
 
