@@ -2,71 +2,44 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { CheckCircle2, ExternalLink, Loader2, XCircle } from "lucide-react";
-import { toast } from "sonner";
-import { api, type ApprovalRequest, type BlogDraft } from "../../../lib/api";
-import { PageContainer } from "../../../components/page-container";
-import { PageHeader } from "../../../components/page-header";
-import { Button } from "../../../components/ui/button";
-import { Card, CardContent } from "../../../components/ui/card";
-import { Input } from "../../../components/ui/input";
-import { Textarea } from "../../../components/ui/textarea";
-import { Label } from "../../../components/ui/label";
-import { Badge } from "../../../components/ui/badge";
-import { Skeleton } from "../../../components/ui/skeleton";
+import { api, type BlogDraft } from "../../../lib/api";
+import { StageRail } from "../../../components/stage-rail";
+import { ActionBar } from "../../../components/action-bar";
+import { useToast } from "../../../components/toast";
 
-interface DraftPayload {
-  draft: BlogDraft;
-  chosenKeyword: string;
-  brief: string;
-}
+interface DraftPayload { draft: BlogDraft; chosenKeyword: string; brief: string; }
 
 export default function DraftApprovalPage() {
   return (
-    <Suspense fallback={<LoadingState />}>
+    <Suspense fallback={<div className="page-inner"><div className="skeleton" style={{ height: 56, borderRadius: 12, marginBottom: 28 }} /><div className="skeleton" style={{ height: 300 }} /></div>}>
       <DraftApproval />
     </Suspense>
-  );
-}
-
-function LoadingState() {
-  return (
-    <PageContainer>
-      <PageHeader title="Review draft" description="Loading draft…" backHref="/approvals" />
-      <div className="flex flex-col gap-4">
-        <Skeleton className="h-10 w-full" />
-        <Skeleton className="h-64 w-full" />
-        <Skeleton className="h-10 w-full" />
-      </div>
-    </PageContainer>
   );
 }
 
 function DraftApproval() {
   const params = useSearchParams();
   const router = useRouter();
+  const { toast } = useToast();
   const approvalId = params.get("approvalId");
-  const workflowRunId = params.get("runId");
+  const workflowRunId = params.get("runId") ?? "";
 
-  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [draft, setDraft] = useState<BlogDraft | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [publishing, setPublishing] = useState<boolean>(false);
-  const [rejecting, setRejecting] = useState<boolean>(false);
+  const [keyword, setKeyword] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ editUrl: string; previewUrl: string } | null>(null);
+  const [tagInput, setTagInput] = useState("");
 
   useEffect(() => {
-    if (!approvalId) {
-      setError("Missing approvalId in URL");
-      setLoading(false);
-      return;
-    }
-    api
-      .getApproval(approvalId)
+    if (!approvalId) { setError("Missing approvalId"); setLoading(false); return; }
+    api.getApproval(approvalId)
       .then((a) => {
-        setApproval(a);
-        setDraft((a.payload as DraftPayload).draft);
+        const p = a.payload as DraftPayload;
+        setDraft(p.draft);
+        setKeyword(p.chosenKeyword);
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
@@ -74,7 +47,7 @@ function DraftApproval() {
 
   async function handleApprove() {
     if (!approvalId || !workflowRunId || !draft) return;
-    setPublishing(true);
+    setSubmitting(true);
     setError(null);
     try {
       if ((draft.imageSlots?.length ?? 0) > 0) {
@@ -82,226 +55,153 @@ function DraftApproval() {
         router.push(`/approvals/images?runId=${workflowRunId}&approvalId=${started.approvalId}`);
         return;
       }
-      await api.decideApproval(approvalId, {
-        status: "approved",
-        data: { editedDraft: draft },
-      });
+      await api.decideApproval(approvalId, { status: "approved", data: { editedDraft: draft } });
       const wp = await api.publishToWordpress(workflowRunId);
       setSuccess({ editUrl: wp.editUrl, previewUrl: wp.previewUrl });
-      toast.success("Draft pushed to WordPress");
+      toast("Draft pushed to WordPress");
     } catch (e) {
       const msg = (e as Error).message;
       setError(msg);
-      toast.error(msg);
-    } finally {
-      setPublishing(false);
+      toast(msg, "err");
+      setSubmitting(false);
     }
   }
 
   async function handleReject() {
     if (!approvalId) return;
     setRejecting(true);
-    setError(null);
     try {
       await api.decideApproval(approvalId, { status: "rejected" });
-      toast.success("Draft rejected");
+      toast("Draft rejected");
       router.push("/dashboard");
     } catch (e) {
       const msg = (e as Error).message;
       setError(msg);
-      toast.error(msg);
+      toast(msg, "err");
       setRejecting(false);
     }
   }
 
-  if (loading) return <LoadingState />;
-
-  if (error && !draft) {
-    return (
-      <PageContainer>
-        <PageHeader title="Review draft" backHref="/approvals" />
-        <Card className="border-destructive/40 bg-destructive/5">
-          <CardContent className="py-4 text-sm text-destructive">{error}</CardContent>
-        </Card>
-      </PageContainer>
-    );
-  }
-  if (!draft) {
-    return (
-      <PageContainer>
-        <PageHeader title="Review draft" backHref="/approvals" />
-        <p className="text-sm text-muted-foreground">No draft payload found.</p>
-      </PageContainer>
-    );
+  function addTag(tag: string) {
+    const t = tag.trim();
+    if (!t || !draft) return;
+    if (!draft.tags.includes(t)) setDraft({ ...draft, tags: [...draft.tags, t] });
+    setTagInput("");
   }
 
-  if (success) {
-    return (
-      <PageContainer>
-        <PageHeader title="Draft saved to WordPress" backHref="/dashboard" backLabel="Dashboard" />
-        <Card>
-          <CardContent className="flex flex-col gap-4 py-6">
-            <div className="flex items-center gap-2 text-success">
-              <CheckCircle2 className="h-5 w-5" />
-              <span className="font-medium">Your draft is waiting for you in WordPress.</span>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild variant="outline">
-                <a href={success.editUrl} target="_blank" rel="noreferrer">
-                  Edit in WordPress
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
-              <Button asChild variant="ghost">
-                <a href={success.previewUrl} target="_blank" rel="noreferrer">
-                  Preview
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </PageContainer>
-    );
+  function removeTag(tag: string) {
+    if (!draft) return;
+    setDraft({ ...draft, tags: draft.tags.filter((t) => t !== tag) });
   }
 
-  const metaCount = draft.metaDescription.length;
-  const metaVariant: "success" | "warning" | "destructive" =
-    metaCount === 0 ? "destructive" : metaCount > 155 ? "warning" : "success";
+  if (loading) return (
+    <div className="page-inner">
+      <div className="skeleton" style={{ height: 56, borderRadius: 12, marginBottom: 28 }} />
+      <div className="skeleton" style={{ width: 200, height: 48, marginBottom: 24 }} />
+      {[0, 1, 2, 3].map((i) => <div key={i} style={{ marginBottom: 16 }}><div className="skeleton" style={{ height: 12, width: 80, marginBottom: 6 }} /><div className="skeleton" style={{ height: 40 }} /></div>)}
+    </div>
+  );
+
+  if (success) return (
+    <div className="page-inner">
+      <div className="page-header">
+        <div className="page-eyebrow">Draft saved</div>
+        <h1 className="page-title">Off to <em>WordPress</em></h1>
+      </div>
+      <div className="card" style={{ padding: 24, marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, color: "var(--green)", fontFamily: "var(--font-serif)", fontSize: 18 }}>✓ Draft is waiting in WordPress</div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <a href={success.editUrl} target="_blank" rel="noreferrer" className="btn btn-primary">Edit in WordPress</a>
+          <a href={success.previewUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">Preview</a>
+          <button className="btn btn-ghost" onClick={() => router.push("/dashboard")}>← Dashboard</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  if (!draft) return (
+    <div className="page-inner">
+      <div className="state"><div className="mk">!</div><h3>No draft found</h3><p>{error ?? "The approval payload was empty."}</p></div>
+    </div>
+  );
+
+  const metaLen = draft.metaDescription.length;
+  const metaCls = metaLen === 0 ? "" : metaLen > 155 ? "over" : metaLen > 140 ? "warn" : "";
 
   return (
-    <PageContainer>
-      <PageHeader
-        title="Review draft"
-        description="Edit inline. Approve to push to WordPress as a draft post."
-        backHref="/approvals"
-      />
+    <div className="page-inner">
+      <StageRail current="/approvals/draft" runId={workflowRunId} />
 
-      <form className="flex flex-col gap-5" onSubmit={(e) => e.preventDefault()}>
-        <Field label="Headline" htmlFor="headline">
-          <Input
-            id="headline"
-            value={draft.headline}
-            onChange={(e) => setDraft({ ...draft, headline: e.target.value })}
-          />
-        </Field>
+      <div className="page-header">
+        <div className="page-eyebrow">Stage 2 of 6 · {keyword}</div>
+        <h1 className="page-title">Review the <em>draft</em></h1>
+        <div className="page-sub">Edit inline. Approve to generate images or push straight to WordPress.</div>
+      </div>
 
-        <Field label="URL slug" htmlFor="slug">
-          <Input
-            id="slug"
-            value={draft.urlSlug}
-            onChange={(e) => setDraft({ ...draft, urlSlug: e.target.value })}
-          />
-        </Field>
+      {error && <div style={{ padding: "12px 16px", background: "var(--red-soft)", color: "var(--red)", borderRadius: 10, marginBottom: 20, fontSize: 13 }}>{error}</div>}
 
-        <Field
-          label="Meta description"
-          htmlFor="meta"
-          extra={<Badge variant={metaVariant}>{metaCount}/160</Badge>}
-        >
-          <Textarea
-            id="meta"
-            rows={2}
-            maxLength={160}
-            value={draft.metaDescription}
-            onChange={(e) => setDraft({ ...draft, metaDescription: e.target.value })}
-          />
-        </Field>
-
-        <Field label="Body (markdown)" htmlFor="body">
-          <Textarea
-            id="body"
-            rows={20}
-            value={draft.bodyMarkdown}
-            onChange={(e) => setDraft({ ...draft, bodyMarkdown: e.target.value })}
-            className="font-mono text-xs"
-          />
-        </Field>
-
-        <Field label="Category" htmlFor="category">
-          <Input
-            id="category"
-            value={draft.category}
-            onChange={(e) => setDraft({ ...draft, category: e.target.value })}
-          />
-        </Field>
-
-        <Field label="Tags (comma-separated)" htmlFor="tags">
-          <Input
-            id="tags"
-            value={draft.tags.join(", ")}
-            onChange={(e) =>
-              setDraft({
-                ...draft,
-                tags: e.target.value.split(",").map((t) => t.trim()).filter(Boolean),
-              })
-            }
-          />
-        </Field>
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <div className="flex flex-wrap gap-3">
-          <Button
-            type="button"
-            size="lg"
-            variant="success"
-            onClick={handleApprove}
-            disabled={publishing || rejecting}
-          >
-            {publishing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" />
-            )}
-            {publishing
-              ? draft.imageSlots.length > 0
-                ? "Generating images…"
-                : "Publishing…"
-              : draft.imageSlots.length > 0
-                ? "Approve → generate images"
-                : "Approve → push to WordPress"}
-          </Button>
-          <Button
-            type="button"
-            size="lg"
-            variant="outline"
-            onClick={handleReject}
-            disabled={publishing || rejecting}
-          >
-            {rejecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
-            {rejecting ? "Rejecting…" : "Reject"}
-          </Button>
+      <div style={{ display: "flex", flexDirection: "column", gap: 18, marginBottom: 80 }}>
+        <div>
+          <div className="field-label"><span>Headline</span></div>
+          <input className="field serif" value={draft.headline} onChange={(e) => setDraft({ ...draft, headline: e.target.value })} />
         </div>
 
-        {approval && (
-          <p className="text-xs text-muted-foreground">
-            Approval {approval.id} · status {approval.status}
-          </p>
-        )}
-      </form>
-    </PageContainer>
-  );
-}
+        <div>
+          <div className="field-label"><span>URL slug</span></div>
+          <input className="field mono" value={draft.urlSlug} onChange={(e) => setDraft({ ...draft, urlSlug: e.target.value })} />
+        </div>
 
-function Field({
-  label,
-  htmlFor,
-  extra,
-  children,
-}: {
-  label: string;
-  htmlFor: string;
-  extra?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <div className="flex items-center justify-between">
-        <Label htmlFor={htmlFor}>{label}</Label>
-        {extra}
+        <div>
+          <div className="field-label">
+            <span>Meta description</span>
+            <span className={`counter ${metaCls}`}>{metaLen}/160</span>
+          </div>
+          <textarea className="field" rows={2} maxLength={160} value={draft.metaDescription} onChange={(e) => setDraft({ ...draft, metaDescription: e.target.value })} />
+        </div>
+
+        <div>
+          <div className="field-label">
+            <span>Body (markdown)</span>
+            <span className="field-hint">{draft.bodyMarkdown.length} chars</span>
+          </div>
+          <textarea className="field mono" rows={20} value={draft.bodyMarkdown} onChange={(e) => setDraft({ ...draft, bodyMarkdown: e.target.value })} />
+        </div>
+
+        <div>
+          <div className="field-label"><span>Category</span></div>
+          <input className="field" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} />
+        </div>
+
+        <div>
+          <div className="field-label"><span>Tags</span></div>
+          <div className="tag-input-wrap">
+            {draft.tags.map((t) => (
+              <span key={t} className="tag">
+                {t}
+                <button className="x" type="button" onClick={() => removeTag(t)}>×</button>
+              </span>
+            ))}
+            <input
+              className="tag-input"
+              value={tagInput}
+              placeholder="Add tag…"
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === ",") { e.preventDefault(); addTag(tagInput); }
+                if (e.key === "Backspace" && !tagInput && draft.tags.length) { const last = draft.tags[draft.tags.length - 1]; if (last) removeTag(last); }
+              }}
+            />
+          </div>
+        </div>
       </div>
-      {children}
+
+      <ActionBar
+        onApprove={handleApprove}
+        approveLabel={draft.imageSlots?.length > 0 ? "Approve → generate images" : "Approve → push to WordPress"}
+        onReject={handleReject}
+        onBack="/approvals"
+        loading={submitting || rejecting}
+      />
     </div>
   );
 }

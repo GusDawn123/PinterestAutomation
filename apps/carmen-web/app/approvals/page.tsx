@@ -1,94 +1,108 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowRight, Inbox } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { api, type ApprovalRequest } from "../../lib/api";
-import { PageContainer } from "../../components/page-container";
-import { PageHeader } from "../../components/page-header";
-import { Card, CardContent } from "../../components/ui/card";
-import { Badge } from "../../components/ui/badge";
-import { Skeleton } from "../../components/ui/skeleton";
-import { EmptyState } from "../../components/empty-state";
+
+const ArrowIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+    <path d="M5 12h14M13 6l6 6-6 6"/>
+  </svg>
+);
 
 const KIND_ROUTE: Record<string, string> = {
-  keyword: "/approvals/keyword",
-  draft: "/approvals/draft",
-  images: "/approvals/images",
-  pins: "/approvals/pins",
-  publish: "/approvals/publish",
+  keyword:    "/approvals/keyword",
+  draft:      "/approvals/draft",
+  images:     "/approvals/images",
   affiliates: "/approvals/affiliates",
+  pins:       "/approvals/pins",
+  publish:    "/approvals/publish",
 };
 
-export default function ApprovalsIndex() {
+const GROUPS = [
+  { stage: "keyword",    label: "1 · Keyword" },
+  { stage: "draft",      label: "2 · Draft" },
+  { stage: "images",     label: "3 · Images" },
+  { stage: "affiliates", label: "4 · Affiliates" },
+  { stage: "pins",       label: "5 · Pins" },
+  { stage: "publish",    label: "6 · Publish" },
+];
+
+export default function ApprovalsHub() {
+  const router = useRouter();
   const [approvals, setApprovals] = useState<ApprovalRequest[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api
-      .listPendingApprovals()
+    api.listPendingApprovals()
       .then((r) => setApprovals(r.approvals))
-      .catch((e) => {
-        setApprovals([]);
-        setError((e as Error).message);
-      });
+      .catch((e) => { setApprovals([]); setError((e as Error).message); });
   }, []);
 
+  const totalCount = approvals?.length ?? 0;
+
   return (
-    <PageContainer>
-      <PageHeader
-        title="Pending approvals"
-        description="Every workflow needs your eyes at a few checkpoints. Here's what's waiting."
-        backHref="/dashboard"
-        backLabel="Dashboard"
-      />
+    <div className="page-inner">
+      <div className="page-header">
+        <div className="page-eyebrow">Approvals</div>
+        <h1 className="page-title">
+          <em>{approvals === null ? "—" : totalCount}</em> item{totalCount !== 1 ? "s" : ""} waiting on you
+        </h1>
+        <div className="page-sub">Grouped by pipeline stage. Oldest first.</div>
+      </div>
 
       {error && (
-        <Card className="mb-4 border-destructive/40 bg-destructive/5">
-          <CardContent className="py-4 text-sm text-destructive">{error}</CardContent>
-        </Card>
+        <div style={{ padding: "12px 16px", background: "var(--red-soft)", color: "var(--red)", borderRadius: 10, marginBottom: 20, fontSize: 13 }}>
+          {error}
+        </div>
       )}
 
       {approvals === null ? (
-        <div className="flex flex-col gap-2">
-          {[0, 1, 2].map((i) => (
-            <Skeleton key={i} className="h-16 w-full" />
+        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+          {[0, 1].map((i) => (
+            <div key={i}>
+              <div className="skeleton" style={{ width: 100, height: 12, marginBottom: 10 }} />
+              <div className="card" style={{ padding: 16 }}>
+                <div className="skeleton" style={{ height: 48 }} />
+              </div>
+            </div>
           ))}
         </div>
       ) : approvals.length === 0 ? (
-        <EmptyState
-          icon={Inbox}
-          title="Nothing waiting"
-          description="Start a new blog post from the dashboard to kick off a workflow."
-        />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {approvals.map((a) => {
-            const base = KIND_ROUTE[a.kind] ?? "/approvals";
-            const href = `${base}?approvalId=${a.id}&runId=${a.workflowRunId}`;
-            return (
-              <Link key={a.id} href={href}>
-                <Card className="transition-colors hover:border-primary/50 hover:bg-accent/30">
-                  <CardContent className="flex items-center justify-between gap-4 py-4">
-                    <div className="flex items-center gap-3">
-                      <Badge variant="secondary" className="capitalize">{a.kind}</Badge>
-                      <div>
-                        <div className="text-sm font-medium">
-                          <span className="capitalize">{a.kind}</span> approval
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {new Date(a.createdAt).toLocaleString()}
-                        </div>
-                      </div>
-                    </div>
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                  </CardContent>
-                </Card>
-              </Link>
-            );
-          })}
+        <div className="state">
+          <div className="mk">✦</div>
+          <h3>Inbox clear</h3>
+          <p>Start a new blog post from the dashboard to kick off a workflow.</p>
         </div>
+      ) : (
+        GROUPS.map((g) => {
+          const items = approvals.filter((a) => a.kind === g.stage);
+          if (!items.length) return null;
+          return (
+            <div key={g.stage} style={{ marginBottom: 28 }}>
+              <div className="section-label" style={{ display: "flex", justifyContent: "space-between" }}>
+                <span>{g.label}</span>
+                <span>{items.length} item{items.length > 1 ? "s" : ""}</span>
+              </div>
+              <div className="card" style={{ overflow: "hidden" }}>
+                {items.map((a) => {
+                  const href = `${KIND_ROUTE[a.kind] ?? "/approvals"}?approvalId=${a.id}&runId=${a.workflowRunId}`;
+                  return (
+                    <div key={a.id} className="mini-queue-item" onClick={() => router.push(href)}>
+                      <span className={`stage-pill ${a.kind}`}>{a.kind}</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="mini-title">{a.kind} approval</div>
+                        <div className="mini-meta">{new Date(a.createdAt).toLocaleString()}</div>
+                      </div>
+                      <button className="btn btn-ghost"><ArrowIcon /></button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })
       )}
-    </PageContainer>
+    </div>
   );
 }

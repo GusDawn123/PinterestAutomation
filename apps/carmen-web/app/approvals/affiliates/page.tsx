@@ -3,143 +3,91 @@
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  CheckCircle2,
-  ExternalLink,
-  Info,
-  Loader2,
-  Plus,
-  Trash2,
-} from "lucide-react";
-import { toast } from "sonner";
-import {
   api,
   type AffiliateProduct,
   type AffiliateRetailer,
   type AffiliatesApprovalPayload,
-  type ApprovalRequest,
   type ImageAffiliateSlot,
 } from "../../../lib/api";
-import { PageContainer } from "../../../components/page-container";
-import { PageHeader } from "../../../components/page-header";
-import { Button } from "../../../components/ui/button";
-import { Card, CardContent } from "../../../components/ui/card";
-import { Badge } from "../../../components/ui/badge";
-import { Input } from "../../../components/ui/input";
-import { Textarea } from "../../../components/ui/textarea";
-import { Skeleton } from "../../../components/ui/skeleton";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "../../../components/ui/select";
+import { StageRail } from "../../../components/stage-rail";
+import { ActionBar } from "../../../components/action-bar";
+import { useToast } from "../../../components/toast";
 
 const RETAILERS: { value: AffiliateRetailer; label: string }[] = [
-  { value: "amazon", label: "Amazon" },
-  { value: "lowes", label: "Lowe's" },
-  { value: "target", label: "Target" },
-  { value: "dharma_crafts", label: "Dharma Crafts" },
-  { value: "sounds_true", label: "Sounds True" },
-  { value: "other", label: "Other" },
+  { value: "amazon",       label: "Amazon" },
+  { value: "lowes",        label: "Lowe's" },
+  { value: "target",       label: "Target" },
+  { value: "dharma_crafts",label: "Dharma Crafts" },
+  { value: "sounds_true",  label: "Sounds True" },
+  { value: "other",        label: "Other" },
 ];
 
-const LINK_RETAILERS: AffiliateRetailer[] = [
-  "amazon",
-  "lowes",
-  "target",
-  "dharma_crafts",
-  "sounds_true",
-];
+const LINK_RETAILERS: AffiliateRetailer[] = ["amazon", "lowes", "target", "dharma_crafts", "sounds_true"];
 
-function getRetailerSearchUrl(retailer: AffiliateRetailer, query: string): string {
-  const q = encodeURIComponent(query);
+function retailerLabel(r: AffiliateRetailer) { return RETAILERS.find((x) => x.value === r)?.label ?? r; }
+
+function retailerUrl(retailer: AffiliateRetailer, q: string): string {
+  const enc = encodeURIComponent(q);
   switch (retailer) {
-    case "amazon":
-      return `https://www.amazon.com/s?k=${q}&s=exact-aware-popularity-rank`;
-    case "lowes":
-      return `https://www.lowes.com/search?searchTerm=${q}&sortMethod=rating-desc`;
-    case "target":
-      return `https://www.target.com/s?searchTerm=${q}&sortBy=bestselling`;
-    case "dharma_crafts":
-      return `https://www.dharmacrafts.com/search?q=${q}`;
-    case "sounds_true":
-      return `https://www.soundstrue.com/search?q=${q}`;
-    default:
-      return `https://www.google.com/search?q=${q}`;
+    case "amazon":       return `https://www.amazon.com/s?k=${enc}&s=exact-aware-popularity-rank`;
+    case "lowes":        return `https://www.lowes.com/search?searchTerm=${enc}&sortMethod=rating-desc`;
+    case "target":       return `https://www.target.com/s?searchTerm=${enc}&sortBy=bestselling`;
+    case "dharma_crafts":return `https://www.dharmacrafts.com/search?q=${enc}`;
+    case "sounds_true":  return `https://www.soundstrue.com/search?q=${enc}`;
+    default:             return `https://www.google.com/search?q=${enc}`;
   }
-}
-
-function retailerLabel(retailer: AffiliateRetailer): string {
-  return RETAILERS.find((r) => r.value === retailer)?.label ?? retailer;
 }
 
 type DraftProduct = AffiliateProduct & { id: string };
 
 export default function AffiliatesApprovalPage() {
   return (
-    <Suspense fallback={<LoadingState />}>
+    <Suspense fallback={<div className="page-inner"><div className="skeleton" style={{ height: 56, borderRadius: 12, marginBottom: 28 }} /><div className="skeleton" style={{ height: 300 }} /></div>}>
       <AffiliatesApproval />
     </Suspense>
-  );
-}
-
-function LoadingState() {
-  return (
-    <PageContainer size="wide">
-      <PageHeader title="Add affiliate products" description="Loading affiliate suggestions…" backHref="/approvals" />
-      <div className="grid gap-4">
-        {[0, 1].map((i) => (
-          <Skeleton key={i} className="h-40 w-full" />
-        ))}
-      </div>
-    </PageContainer>
   );
 }
 
 function AffiliatesApproval() {
   const params = useSearchParams();
   const router = useRouter();
+  const { toast } = useToast();
   const approvalId = params.get("approvalId");
-  const workflowRunId = params.get("runId");
+  const workflowRunId = params.get("runId") ?? "";
 
-  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [slots, setSlots] = useState<ImageAffiliateSlot[]>([]);
   const [drafts, setDrafts] = useState<Record<number, DraftProduct[]>>({});
+  const [activeSlot, setActiveSlot] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<{ editUrl: string; previewUrl: string } | null>(null);
+  const [modal, setModal] = useState<{ slotPosition: number; productId: string } | null>(null);
 
   useEffect(() => {
-    if (!approvalId) {
-      setError("Missing approvalId in URL");
-      setLoading(false);
-      return;
-    }
-    api
-      .getApproval(approvalId)
+    if (!approvalId) { setError("Missing approvalId"); setLoading(false); return; }
+    api.getApproval(approvalId)
       .then((a) => {
-        setApproval(a);
         const payload = a.payload as AffiliatesApprovalPayload;
         setSlots(payload.slots);
         const seed: Record<number, DraftProduct[]> = {};
         for (const s of payload.slots) {
-          seed[s.slotPosition] = (s.products ?? []).map((p, i) => ({
-            ...p,
-            id: `${s.slotPosition}-seed-${i}`,
-          }));
+          seed[s.slotPosition] = (s.products ?? []).map((p, i) => ({ ...p, id: `${s.slotPosition}-seed-${i}` }));
         }
         setDrafts(seed);
+        setActiveSlot(payload.slots[0]?.slotPosition ?? 0);
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, [approvalId]);
 
+  function slotDone(pos: number) {
+    return (drafts[pos] ?? []).length > 0 && (drafts[pos] ?? []).every((p) => p.rawHtml.trim().length > 0);
+  }
+
   const canSubmit = useMemo(
-    () =>
-      slots.length > 0 &&
-      slots.every((s) => (drafts[s.slotPosition] ?? []).every((p) => p.rawHtml.trim().length > 0)),
+    () => slots.length > 0 && slots.every((s) => slotDone(s.slotPosition)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [slots, drafts],
   );
 
@@ -147,25 +95,12 @@ function AffiliatesApproval() {
     setDrafts((prev) => {
       const list = prev[slotPosition] ?? [];
       if (list.length >= 5) return prev;
-      return {
-        ...prev,
-        [slotPosition]: [
-          ...list,
-          {
-            id: `${slotPosition}-${Date.now()}-${list.length}`,
-            retailer: "amazon",
-            rawHtml: "",
-          },
-        ],
-      };
+      return { ...prev, [slotPosition]: [...list, { id: `${slotPosition}-${Date.now()}`, retailer: "amazon" as AffiliateRetailer, rawHtml: "" }] };
     });
   }
 
   function removeProduct(slotPosition: number, id: string) {
-    setDrafts((prev) => ({
-      ...prev,
-      [slotPosition]: (prev[slotPosition] ?? []).filter((p) => p.id !== id),
-    }));
+    setDrafts((prev) => ({ ...prev, [slotPosition]: (prev[slotPosition] ?? []).filter((p) => p.id !== id) }));
   }
 
   function updateProduct(slotPosition: number, id: string, patch: Partial<AffiliateProduct>) {
@@ -186,249 +121,207 @@ function AffiliatesApproval() {
           products: (drafts[s.slotPosition] ?? []).map(({ id: _id, ...p }) => ({
             retailer: p.retailer,
             rawHtml: p.rawHtml.trim(),
-            ...(p.displayLabel && p.displayLabel.trim() ? { displayLabel: p.displayLabel.trim() } : {}),
+            ...(p.displayLabel?.trim() ? { displayLabel: p.displayLabel.trim() } : {}),
           })),
         })),
       };
       await api.decideAffiliates(workflowRunId, decision);
       const wp = await api.publishToWordpress(workflowRunId);
       setSuccess({ editUrl: wp.editUrl, previewUrl: wp.previewUrl });
-      toast.success("Draft published to WordPress");
+      toast("Published to WordPress");
     } catch (e) {
       const msg = (e as Error).message;
       setError(msg);
-      toast.error(msg);
-    } finally {
+      toast(msg, "err");
       setSubmitting(false);
     }
   }
 
-  if (loading) return <LoadingState />;
-  if (error && !slots.length) {
-    return (
-      <PageContainer size="wide">
-        <PageHeader title="Add affiliate products" backHref="/approvals" />
-        <Card className="border-destructive/40 bg-destructive/5">
-          <CardContent className="py-4 text-sm text-destructive">{error}</CardContent>
-        </Card>
-      </PageContainer>
-    );
-  }
-  if (slots.length === 0) {
-    return (
-      <PageContainer size="wide">
-        <PageHeader title="Add affiliate products" backHref="/approvals" />
-        <p className="text-sm text-muted-foreground">No affiliate slots found.</p>
-      </PageContainer>
-    );
-  }
+  if (loading) return (
+    <div className="page-inner">
+      <div className="skeleton" style={{ height: 56, borderRadius: 12, marginBottom: 28 }} />
+      <div className="skeleton" style={{ width: 200, height: 48, marginBottom: 24 }} />
+      <div className="skeleton" style={{ height: 200 }} />
+    </div>
+  );
 
-  if (success) {
-    return (
-      <PageContainer size="wide">
-        <PageHeader title="Draft saved to WordPress" backHref="/dashboard" backLabel="Dashboard" />
-        <Card>
-          <CardContent className="flex flex-col gap-4 py-6">
-            <div className="flex items-center gap-2 text-success">
-              <CheckCircle2 className="h-5 w-5" />
-              <span className="font-medium">
-                Affiliate blocks injected under each image. Review and publish from WordPress.
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild variant="outline">
-                <a href={success.editUrl} target="_blank" rel="noreferrer">
-                  Edit in WordPress <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
-              <Button asChild variant="ghost">
-                <a href={success.previewUrl} target="_blank" rel="noreferrer">
-                  Preview <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              </Button>
-            </div>
-            <div>
-              <Button onClick={() => router.push(`/dashboard?runId=${workflowRunId ?? ""}`)}>
-                Back to dashboard — next: compose pins
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </PageContainer>
-    );
-  }
+  if (success) return (
+    <div className="page-inner">
+      <div className="page-header">
+        <div className="page-eyebrow">Complete</div>
+        <h1 className="page-title">Off to <em>WordPress</em></h1>
+      </div>
+      <div className="card" style={{ padding: 24, marginBottom: 16 }}>
+        <div style={{ marginBottom: 16, color: "var(--green)", fontFamily: "var(--font-serif)", fontSize: 18 }}>✓ Affiliate blocks injected</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <a href={success.editUrl} target="_blank" rel="noreferrer" className="btn btn-primary">Edit in WordPress</a>
+          <a href={success.previewUrl} target="_blank" rel="noreferrer" className="btn btn-ghost">Preview</a>
+          <button className="btn btn-ghost" onClick={() => router.push("/dashboard")}>Dashboard — next: compose pins</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const currentSlot = slots.find((s) => s.slotPosition === activeSlot);
+  const currentProducts = drafts[activeSlot] ?? [];
+  const modalProduct = modal ? (drafts[modal.slotPosition] ?? []).find((p) => p.id === modal.productId) : null;
 
   return (
-    <PageContainer size="wide">
-      <PageHeader
-        title="Add affiliate products"
-        description="Claude picked a few product queries per image. Open the retailer link (sorted by bestseller / rating where supported), grab the SiteStripe or partner-tool HTML, and paste it in. Up to 5 products per image."
-        backHref="/approvals"
-      />
+    <div className="page-inner">
+      <StageRail current="/approvals/affiliates" runId={workflowRunId} />
 
-      <div className="mb-4 flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm text-foreground">
-        <Info className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-        <p className="text-muted-foreground">
-          Prefer 4★+ with many reviews — high-volume, mainstream products convert best.
-        </p>
+      <div className="page-header">
+        <div className="page-eyebrow">Stage 4 of 6</div>
+        <h1 className="page-title">Add <em>affiliates</em></h1>
+        <div className="page-sub">Pick 4★+ products from each suggested search. Paste the SiteStripe HTML below each image slot.</div>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {slots.map((slot) => {
-          const products = drafts[slot.slotPosition] ?? [];
+      {error && <div style={{ padding: "12px 16px", background: "var(--red-soft)", color: "var(--red)", borderRadius: 10, marginBottom: 20, fontSize: 13 }}>{error}</div>}
+
+      {/* Slot tabs */}
+      <div className="aff-tabs">
+        {slots.map((s) => {
+          const done = slotDone(s.slotPosition);
+          const active = s.slotPosition === activeSlot;
           return (
-            <Card key={slot.slotPosition}>
-              <CardContent className="flex flex-col gap-4 py-5 md:flex-row">
-                <div className="md:w-[220px] md:shrink-0">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={slot.imageUrl}
-                    alt={slot.altText ?? `slot ${slot.slotPosition}`}
-                    className="aspect-square w-full rounded-lg border border-border object-cover"
-                  />
-                </div>
-
-                <div className="flex flex-1 flex-col gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold">Slot {slot.slotPosition}</h3>
-                    {slot.altText && (
-                      <p className="mt-0.5 text-xs text-muted-foreground">{slot.altText}</p>
-                    )}
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    {slot.suggestedQueries.map((q, qi) => (
-                      <QueryChip key={qi} query={q} />
-                    ))}
-                  </div>
-
-                  <div className="flex flex-col gap-2">
-                    {products.map((p, idx) => (
-                      <ProductRow
-                        key={p.id}
-                        index={idx}
-                        product={p}
-                        onChange={(patch) => updateProduct(slot.slotPosition, p.id, patch)}
-                        onRemove={() => removeProduct(slot.slotPosition, p.id)}
-                      />
-                    ))}
-
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => addProduct(slot.slotPosition)}
-                      disabled={products.length >= 5 || submitting}
-                      className="border-dashed self-start"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {products.length >= 5 ? "Max 5 products" : "Add product"}
-                    </Button>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+            <button
+              key={s.slotPosition}
+              type="button"
+              className={`aff-tab ${active ? "active" : ""} ${done ? "done" : ""}`}
+              onClick={() => setActiveSlot(s.slotPosition)}
+            >
+              <div className="aff-tab-thumb">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={s.imageUrl} alt={s.altText ?? `slot ${s.slotPosition}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                {done && <div className="aff-tab-check">✓</div>}
+              </div>
+              <div className="aff-tab-body">
+                <div className="aff-tab-n">Slot {s.slotPosition + 1}</div>
+                <div className="aff-tab-lbl">{(drafts[s.slotPosition] ?? []).length} product{(drafts[s.slotPosition] ?? []).length !== 1 ? "s" : ""}</div>
+              </div>
+            </button>
           );
         })}
       </div>
 
-      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
+      {/* Slot detail */}
+      {currentSlot && (
+        <div className="aff-detail" style={{ marginBottom: 80 }}>
+          <div className="aff-detail-head">
+            <div className="aff-detail-thumb">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={currentSlot.imageUrl} alt={currentSlot.altText ?? `slot ${activeSlot}`} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            </div>
+            <div>
+              <div style={{ fontFamily: "var(--font-serif)", fontSize: 20, marginBottom: 8 }}>Image {activeSlot + 1}</div>
+              {currentSlot.altText && <div style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 10, fontStyle: "italic" }}>{currentSlot.altText}</div>}
+              <div className="aff-detected">
+                <span className="aff-detected-lbl">Suggested searches</span>
+                {currentSlot.suggestedQueries.map((q, qi) => (
+                  <div key={qi} style={{ position: "relative" }}>
+                    <span className="aff-query">{q}</span>
+                    <div className="aff-queries" style={{ marginTop: 4, display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {LINK_RETAILERS.map((r) => (
+                        <a
+                          key={r}
+                          href={retailerUrl(r, q)}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--accent-ink)", background: "var(--accent-soft)", padding: "1px 6px", borderRadius: 4, textDecoration: "none" }}
+                        >
+                          {retailerLabel(r)}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
 
-      <div className="mt-6 flex flex-wrap gap-3">
-        <Button size="lg" variant="success" onClick={handleSubmit} disabled={!canSubmit || submitting}>
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          {submitting ? "Publishing…" : "Confirm affiliates → push to WordPress"}
-        </Button>
-        <Button size="lg" variant="ghost" onClick={() => router.push("/dashboard")}>
-          Cancel
-        </Button>
-      </div>
-
-      {approval && (
-        <p className="mt-6 text-xs text-muted-foreground">
-          Approval {approval.id} · status {approval.status}
-        </p>
-      )}
-    </PageContainer>
-  );
-}
-
-function QueryChip({ query }: { query: string }) {
-  return (
-    <div className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2.5 py-1 text-xs">
-      <span className="font-medium">{query}</span>
-      <span className="flex items-center gap-1">
-        {LINK_RETAILERS.map((r) => (
-          <a
-            key={r}
-            href={getRetailerSearchUrl(r, query)}
-            target="_blank"
-            rel="noreferrer"
-            title={`Search ${retailerLabel(r)}`}
-            className="rounded px-1 text-[0.65rem] text-primary hover:underline"
-          >
-            {retailerLabel(r)}
-          </a>
-        ))}
-      </span>
-    </div>
-  );
-}
-
-function ProductRow({
-  index,
-  product,
-  onChange,
-  onRemove,
-}: {
-  index: number;
-  product: DraftProduct;
-  onChange: (patch: Partial<AffiliateProduct>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs text-muted-foreground">#{index + 1}</span>
-        <Select
-          value={product.retailer}
-          onValueChange={(v) => onChange({ retailer: v as AffiliateRetailer })}
-        >
-          <SelectTrigger className="h-8 w-auto min-w-[140px] text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {RETAILERS.map((r) => (
-              <SelectItem key={r.value} value={r.value}>
-                {r.label}
-              </SelectItem>
+          <div className="aff-product-list">
+            {currentProducts.map((p, idx) => (
+              <div key={p.id} className={`aff-product-card ${p.rawHtml.trim() ? "picked" : ""}`}>
+                <span className="aff-product-retailer">{retailerLabel(p.retailer)}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="aff-product-label">{p.displayLabel || `Product ${idx + 1}`}</div>
+                  {p.rawHtml.trim()
+                    ? <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--green)", marginTop: 2 }}>✓ HTML pasted</div>
+                    : <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--ink-faint)", marginTop: 2 }}>No HTML yet</div>
+                  }
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => setModal({ slotPosition: activeSlot, productId: p.id })}>
+                    {p.rawHtml.trim() ? "Edit" : "Paste HTML"}
+                  </button>
+                  <button type="button" className="btn btn-danger" style={{ padding: "4px 8px" }} onClick={() => removeProduct(activeSlot, p.id)}>×</button>
+                </div>
+              </div>
             ))}
-          </SelectContent>
-        </Select>
-        <Input
-          type="text"
-          placeholder="Display label (optional)"
-          value={product.displayLabel ?? ""}
-          onChange={(e) => onChange({ displayLabel: e.target.value })}
-          className="h-8 flex-1 min-w-[160px] text-xs"
-        />
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onRemove}
-          className="text-destructive hover:text-destructive"
-          aria-label="Remove product"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
-      <Textarea
-        value={product.rawHtml}
-        onChange={(e) => onChange({ rawHtml: e.target.value })}
-        placeholder="Paste SiteStripe / partner-tool HTML snippet"
-        rows={3}
-        className="font-mono text-xs"
+
+            {currentProducts.length === 0 && (
+              <div className="aff-none">
+                <span style={{ color: "var(--ink-muted)", fontSize: 13 }}>No products yet — add up to 5 per slot.</span>
+                <button type="button" className="btn btn-ghost" onClick={() => addProduct(activeSlot)}>+ Add first product</button>
+              </div>
+            )}
+
+            {currentProducts.length > 0 && currentProducts.length < 5 && (
+              <button type="button" className="btn btn-ghost" style={{ borderStyle: "dashed", alignSelf: "flex-start" }} onClick={() => addProduct(activeSlot)}>
+                + Add product
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Paste modal */}
+      {modal && modalProduct && (
+        <div className="aff-modal-wrap" onClick={(e) => { if (e.target === e.currentTarget) setModal(null); }}>
+          <div className="aff-modal">
+            <div style={{ fontFamily: "var(--font-serif)", fontSize: 22, marginBottom: 4 }}>Paste affiliate HTML</div>
+            <div style={{ marginBottom: 14 }}>
+              <div className="field-label" style={{ marginBottom: 6 }}><span>Retailer</span></div>
+              <select
+                className="field"
+                value={modalProduct.retailer}
+                onChange={(e) => updateProduct(modal.slotPosition, modal.productId, { retailer: e.target.value as AffiliateRetailer })}
+              >
+                {RETAILERS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div className="field-label"><span>Display label (optional)</span></div>
+              <input className="field" value={modalProduct.displayLabel ?? ""} placeholder="Product name" onChange={(e) => updateProduct(modal.slotPosition, modal.productId, { displayLabel: e.target.value })} />
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div className="field-label">
+                <span>SiteStripe / partner HTML</span>
+                <span className="field-hint">{modalProduct.rawHtml.length} chars</span>
+              </div>
+              <textarea
+                className="field mono"
+                rows={6}
+                value={modalProduct.rawHtml}
+                placeholder="Paste HTML snippet here…"
+                onChange={(e) => updateProduct(modal.slotPosition, modal.productId, { rawHtml: e.target.value })}
+              />
+              <div className="aff-modal-tip">Get this from SiteStripe (Amazon) or your retailer's partner tool. Look for the "Text" or "Text+Image" embed option.</div>
+            </div>
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+              <button type="button" className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
+              <button type="button" className="btn btn-primary" onClick={() => setModal(null)}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ActionBar
+        onApprove={handleSubmit}
+        approveLabel="Confirm affiliates → push to WordPress"
+        onBack="/approvals"
+        disabled={!canSubmit}
+        loading={submitting}
       />
     </div>
   );

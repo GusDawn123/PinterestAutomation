@@ -1,36 +1,31 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart3, LineChart, Loader2, Search } from "lucide-react";
-import { toast } from "sonner";
 import { api, type RecommendedSlot } from "../../lib/api";
-import { PageContainer } from "../../components/page-container";
-import { PageHeader } from "../../components/page-header";
-import { EmptyState } from "../../components/empty-state";
-import { Button } from "../../components/ui/button";
-import { Card, CardContent } from "../../components/ui/card";
-import { Input } from "../../components/ui/input";
-import { Label } from "../../components/ui/label";
-import { Badge } from "../../components/ui/badge";
-import { Skeleton } from "../../components/ui/skeleton";
-import { Separator } from "../../components/ui/separator";
+import { useToast } from "../../components/toast";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+const SearchIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="14" height="14">
+    <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+  </svg>
+);
+
 export default function Analytics() {
-  const [boardId, setBoardId] = useState<string>("");
-  const [activeBoardId, setActiveBoardId] = useState<string>("");
+  const { toast } = useToast();
+  const [boardId, setBoardId] = useState("");
+  const [activeBoardId, setActiveBoardId] = useState("");
   const [slots, setSlots] = useState<RecommendedSlot[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [analyticsItems, setAnalyticsItems] = useState<Array<Record<string, unknown>>>([]);
   const [rowsLoading, setRowsLoading] = useState(true);
+  const [selected, setSelected] = useState<RecommendedSlot | null>(null);
 
   useEffect(() => {
-    api
-      .listAnalytics()
+    api.listAnalytics()
       .then(({ items }) => setAnalyticsItems(items))
-      .catch((e) => setError((e as Error).message))
+      .catch(() => {})
       .finally(() => setRowsLoading(false));
   }, []);
 
@@ -38,122 +33,206 @@ export default function Analytics() {
     e?.preventDefault();
     if (!boardId) return;
     setLoading(true);
-    setError(null);
+    setSelected(null);
     try {
       const { slots } = await api.listRecommendedSlots(boardId);
       setSlots(slots);
       setActiveBoardId(boardId);
     } catch (err) {
-      const msg = (err as Error).message;
-      setError(msg);
-      toast.error(msg);
+      toast((err as Error).message, "err");
     } finally {
       setLoading(false);
     }
   }
 
+  const maxScore = slots.length > 0 ? Math.max(...slots.map((s) => s.score)) : 1;
+
+  function heatColor(score: number): string {
+    const t = score / maxScore;
+    const r = Math.round(180 + 75 * t);
+    const g = Math.round(200 - 100 * t);
+    const b = Math.round(200 - 160 * t);
+    return `rgb(${r},${g},${b})`;
+  }
+
+  const slotMap = new Map<string, RecommendedSlot>();
+  for (const s of slots) slotMap.set(`${s.dayOfWeek}-${s.hour}`, s);
+
   return (
-    <PageContainer size="wide">
-      <PageHeader
-        title="Analytics"
-        description="Recommended posting slots per board — ranked by impressions, saves, and outbound clicks."
-        backHref="/dashboard"
-        backLabel="Dashboard"
-      />
+    <div className="page-inner">
+      <div className="page-header">
+        <div className="page-eyebrow">Analytics</div>
+        <h1 className="page-title">Posting <em>slots</em></h1>
+        <div className="page-sub">Recommended times per board — ranked by impressions, saves, and outbound clicks.</div>
+      </div>
 
-      <Card className="mb-6">
-        <CardContent className="py-5">
-          <form onSubmit={loadSlots} className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <div className="flex flex-1 flex-col gap-1.5">
-              <Label htmlFor="board-id">Board ID</Label>
-              <Input
-                id="board-id"
-                value={boardId}
-                onChange={(e) => setBoardId(e.target.value)}
-                placeholder="e.g. 123456789012345678"
-              />
+      {/* Board search */}
+      <form onSubmit={loadSlots} style={{ display: "flex", gap: 10, marginBottom: 28, alignItems: "flex-end" }}>
+        <div style={{ flex: 1 }}>
+          <div className="field-label"><span>Pinterest board ID</span></div>
+          <input
+            className="field"
+            value={boardId}
+            onChange={(e) => setBoardId(e.target.value)}
+            placeholder="e.g. 123456789012345678"
+          />
+        </div>
+        <button type="submit" className="btn btn-primary btn-lg" disabled={!boardId || loading}>
+          {loading ? "Loading…" : <><SearchIcon /> Load slots</>}
+        </button>
+      </form>
+
+      {/* Heatmap */}
+      {(slots.length > 0 || activeBoardId) && (
+        <div style={{ marginBottom: 36 }}>
+          <div className="section-label" style={{ marginBottom: 14 }}>
+            {activeBoardId ? `Heat map — board ${activeBoardId}` : "Heat map"}
+          </div>
+          {slots.length === 0 && !loading ? (
+            <div className="state" style={{ padding: "32px 20px" }}>
+              <div className="mk">✦</div>
+              <h3>No slots yet</h3>
+              <p>Once pins on this board accumulate impressions, ranked slots appear here.</p>
             </div>
-            <Button type="submit" disabled={!boardId || loading}>
-              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              {loading ? "Loading…" : "Load slots"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+          ) : (
+            <div className="heat-wrap card" style={{ padding: 0 }}>
+              <div className="heat" style={{ padding: 16 }}>
+                {/* Hour headers */}
+                <div className="heat-label" />
+                {Array.from({ length: 24 }, (_, h) => (
+                  <div key={h} className="heat-hr">{h}</div>
+                ))}
 
-      {error && (
-        <Card className="mb-4 border-destructive/40 bg-destructive/5">
-          <CardContent className="py-3 text-sm text-destructive">{error}</CardContent>
-        </Card>
+                {/* Day rows */}
+                {DAY_NAMES.map((day, dow) => (
+                  <>
+                    <div key={`label-${dow}`} className="heat-label">{day}</div>
+                    {Array.from({ length: 24 }, (_, h) => {
+                      const s = slotMap.get(`${dow}-${h}`);
+                      const isSelected = selected?.dayOfWeek === dow && selected?.hour === h;
+                      return (
+                        <div
+                          key={`${dow}-${h}`}
+                          className={`heat-cell ${isSelected ? "selected" : ""}`}
+                          style={s ? { background: heatColor(s.score) } : undefined}
+                          title={s ? `${day} ${h}:00 — score ${s.score.toFixed(2)}, n=${s.sampleSize}` : `${day} ${h}:00`}
+                          onClick={() => s && setSelected(isSelected ? null : s)}
+                        />
+                      );
+                    })}
+                  </>
+                ))}
+              </div>
+              <div style={{ padding: "0 16px 12px", display: "flex", gap: 8, alignItems: "center" }}>
+                <div className="heat-legend">
+                  <div className="sw" style={{ background: "var(--bg-sunken)" }} />
+                  <span>No data</span>
+                </div>
+                <div className="heat-legend" style={{ marginLeft: 8 }}>
+                  <div className="sw" style={{ background: heatColor(maxScore * 0.3) }} />
+                  <span>Low</span>
+                </div>
+                <div className="heat-legend" style={{ marginLeft: 8 }}>
+                  <div className="sw" style={{ background: heatColor(maxScore * 0.7) }} />
+                  <span>Med</span>
+                </div>
+                <div className="heat-legend" style={{ marginLeft: 8 }}>
+                  <div className="sw" style={{ background: heatColor(maxScore) }} />
+                  <span>High</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Drill-in */}
+          {selected && (
+            <div className="slot-drill">
+              <div className="slot-drill-head">
+                <div>
+                  <div className="slot-drill-title">
+                    {DAY_NAMES[selected.dayOfWeek]} · <em>{String(selected.hour).padStart(2, "0")}:00</em> UTC
+                  </div>
+                  <div className="slot-drill-sub">
+                    Score {selected.score.toFixed(2)} · {selected.sampleSize} sample{selected.sampleSize !== 1 ? "s" : ""}
+                  </div>
+                </div>
+                <button type="button" className="btn btn-ghost" onClick={() => setSelected(null)} style={{ padding: "4px 10px", fontSize: 12 }}>✕ Close</button>
+              </div>
+              <div style={{ padding: "16px 22px" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(100px, 1fr))", gap: 16 }}>
+                  <div className="stat-col" style={{ textAlign: "left" }}>
+                    <div className="v">{selected.score.toFixed(2)}</div>
+                    <div className="l">Composite score</div>
+                  </div>
+                  <div className="stat-col" style={{ textAlign: "left" }}>
+                    <div className="v">{selected.sampleSize}</div>
+                    <div className="l">Sample size</div>
+                  </div>
+                  <div className="stat-col" style={{ textAlign: "left" }}>
+                    <div className="v">#{slots.findIndex((s) => s.dayOfWeek === selected.dayOfWeek && s.hour === selected.hour) + 1}</div>
+                    <div className="l">Rank</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       )}
 
-      <section className="mb-8">
-        <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
-          <BarChart3 className="h-4 w-4" />
-          {activeBoardId ? `Top slots for board ${activeBoardId}` : "Recommended slots"}
-        </h2>
-
-        {loading ? (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <Skeleton key={i} className="h-24 w-full" />
+      {/* Top slots list */}
+      {slots.length > 0 && (
+        <div>
+          <div className="section-label" style={{ marginBottom: 14 }}>Top 10 recommended slots</div>
+          <div className="card" style={{ overflow: "hidden" }}>
+            {slots.slice(0, 10).map((s, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "36px 1fr auto",
+                  gap: 14,
+                  padding: "12px 16px",
+                  alignItems: "center",
+                  borderBottom: i < Math.min(slots.length, 10) - 1 ? "1px solid var(--border)" : "none",
+                  cursor: "pointer",
+                  background: selected?.dayOfWeek === s.dayOfWeek && selected?.hour === s.hour ? "var(--accent-soft)" : undefined,
+                  transition: "background .15s",
+                }}
+                onClick={() => setSelected(selected?.dayOfWeek === s.dayOfWeek && selected?.hour === s.hour ? null : s)}
+              >
+                <div style={{ fontFamily: "var(--font-serif)", fontSize: 22, color: "var(--ink-faint)", lineHeight: 1 }}>
+                  {i + 1}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 500, fontSize: 14 }}>{DAY_NAMES[s.dayOfWeek]} · {String(s.hour).padStart(2, "0")}:00 UTC</div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--ink-muted)", marginTop: 2 }}>n={s.sampleSize}</div>
+                </div>
+                <span className="chip good">score {s.score.toFixed(2)}</span>
+              </div>
             ))}
           </div>
-        ) : slots.length === 0 ? (
-          <EmptyState
-            icon={BarChart3}
-            title={activeBoardId ? "No slots yet for this board" : "Enter a board ID to see slot recommendations"}
-            description={
-              activeBoardId
-                ? "Once pins on this board have accumulated impressions, ranked slots will appear here."
-                : "Find your board ID in the Pinterest URL or API and load it above."
-            }
-          />
-        ) : (
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {slots.map((s, i) => (
-              <Card key={i}>
-                <CardContent className="flex items-center justify-between py-4">
-                  <div>
-                    <div className="text-sm font-semibold">
-                      {DAY_NAMES[s.dayOfWeek]} · {String(s.hour).padStart(2, "0")}:00 UTC
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      <Badge variant="secondary">score {s.score.toFixed(2)}</Badge>
-                      <Badge variant="outline">n={s.sampleSize}</Badge>
-                    </div>
-                  </div>
-                  <div className="text-xs font-mono text-muted-foreground">#{i + 1}</div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
-      </section>
+        </div>
+      )}
 
-      <Separator className="my-6" />
-
-      <section>
-        <h2 className="mb-3 flex items-center gap-2 text-base font-semibold">
-          <LineChart className="h-4 w-4" />
-          Recent analytics rows
-        </h2>
-        {rowsLoading ? (
-          <Skeleton className="h-16 w-full" />
-        ) : analyticsItems.length === 0 ? (
-          <EmptyState
-            icon={LineChart}
-            title="No analytics captured yet"
-            description="Once scheduled pins go live, the daily cron fetches impressions, saves, and outbound clicks."
-          />
-        ) : (
-          <Card>
-            <CardContent className="py-4 text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">{analyticsItems.length}</span> rows collected.
-            </CardContent>
-          </Card>
-        )}
-      </section>
-    </PageContainer>
+      {/* Raw rows */}
+      {!activeBoardId && (
+        <div style={{ marginTop: 36 }}>
+          <div className="section-label" style={{ marginBottom: 14 }}>Recent analytics rows</div>
+          {rowsLoading ? (
+            <div className="skeleton" style={{ height: 48 }} />
+          ) : analyticsItems.length === 0 ? (
+            <div className="state" style={{ padding: "32px 20px" }}>
+              <div className="mk">✦</div>
+              <h3>No analytics yet</h3>
+              <p>Once scheduled pins go live, the daily cron fetches impressions, saves, and outbound clicks.</p>
+            </div>
+          ) : (
+            <div className="card" style={{ padding: "14px 18px", fontSize: 13, color: "var(--ink-muted)" }}>
+              <span style={{ fontFamily: "var(--font-serif)", fontSize: 22 }}>{analyticsItems.length}</span> rows collected.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

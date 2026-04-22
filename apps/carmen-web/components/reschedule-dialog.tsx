@@ -1,17 +1,6 @@
 "use client";
 
-import * as React from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
-import { Button } from "./ui/button";
-import { Input } from "./ui/input";
-import { Label } from "./ui/label";
+import { useEffect, useState } from "react";
 
 function toLocalInput(iso: string | undefined): string {
   if (!iso) return "";
@@ -34,49 +23,49 @@ export function RescheduleDialog({
   onSubmit: (iso: string) => void | Promise<void>;
   submitting?: boolean;
 }) {
-  const [value, setValue] = React.useState<string>(toLocalInput(currentIso));
+  const [value, setValue] = useState(toLocalInput(currentIso));
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (open) setValue(toLocalInput(currentIso));
   }, [open, currentIso]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!value) return;
-    const iso = new Date(value).toISOString();
-    await onSubmit(iso);
+    await onSubmit(new Date(value).toISOString());
   }
 
+  if (!open) return null;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <div
+      className="aff-modal-wrap"
+      onClick={(e) => { if (e.target === e.currentTarget && !submitting) onOpenChange(false); }}
+    >
+      <div className="aff-modal">
+        <div style={{ fontFamily: "var(--font-serif)", fontSize: 22, marginBottom: 4 }}>Reschedule pin</div>
+        <div style={{ fontSize: 12, color: "var(--ink-muted)", marginBottom: 18 }}>Pick a new date and time. Stored as UTC on the server.</div>
         <form onSubmit={handleSubmit}>
-          <DialogHeader>
-            <DialogTitle>Reschedule pin</DialogTitle>
-            <DialogDescription>
-              Pick a new date and time. Stored as UTC on the server.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="my-4 grid gap-2">
-            <Label htmlFor="reschedule-at">New time</Label>
-            <Input
-              id="reschedule-at"
+          <div style={{ marginBottom: 18 }}>
+            <div className="field-label"><span>New time</span></div>
+            <input
               type="datetime-local"
+              className="field"
               required
               value={value}
               onChange={(e) => setValue(e.target.value)}
             />
           </div>
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button type="button" className="btn btn-ghost" onClick={() => onOpenChange(false)} disabled={submitting}>
               Cancel
-            </Button>
-            <Button type="submit" disabled={!value || submitting}>
+            </button>
+            <button type="submit" className="btn btn-primary" disabled={!value || submitting}>
               {submitting ? "Saving…" : "Save"}
-            </Button>
-          </DialogFooter>
+            </button>
+          </div>
         </form>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }

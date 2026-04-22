@@ -2,57 +2,37 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  ArrowRight,
-  CheckCircle2,
-  ImagePlus,
-  Loader2,
-  RefreshCw,
-  Upload,
-} from "lucide-react";
-import { toast } from "sonner";
-import {
-  api,
-  type ApprovalRequest,
-  type PinsApprovalPayload,
-} from "../../../lib/api";
-import { PageContainer } from "../../../components/page-container";
-import { PageHeader } from "../../../components/page-header";
-import { Button } from "../../../components/ui/button";
-import { Card, CardContent } from "../../../components/ui/card";
-import { Badge } from "../../../components/ui/badge";
-import { Skeleton } from "../../../components/ui/skeleton";
-import { Switch } from "../../../components/ui/switch";
-import { Label } from "../../../components/ui/label";
+import { api, type PinsApprovalPayload } from "../../../lib/api";
+import { StageRail } from "../../../components/stage-rail";
+import { ActionBar } from "../../../components/action-bar";
+import { useToast } from "../../../components/toast";
+
+const UploadIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+  </svg>
+);
+const RefreshIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" width="13" height="13">
+    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/>
+  </svg>
+);
 
 export default function PinsApprovalPage() {
   return (
-    <Suspense fallback={<LoadingState />}>
+    <Suspense fallback={<div className="page-inner"><div className="skeleton" style={{ height: 56, borderRadius: 12, marginBottom: 28 }} /><div className="skeleton" style={{ height: 300 }} /></div>}>
       <PinsApproval />
     </Suspense>
-  );
-}
-
-function LoadingState() {
-  return (
-    <PageContainer size="wide">
-      <PageHeader title="Upload & review pins" description="Loading composed pins…" backHref="/approvals" />
-      <div className="grid gap-4">
-        {[0, 1].map((i) => (
-          <Skeleton key={i} className="h-48 w-full" />
-        ))}
-      </div>
-    </PageContainer>
   );
 }
 
 function PinsApproval() {
   const params = useSearchParams();
   const router = useRouter();
+  const { toast } = useToast();
   const approvalId = params.get("approvalId");
-  const workflowRunId = params.get("runId");
+  const workflowRunId = params.get("runId") ?? "";
 
-  const [approval, setApproval] = useState<ApprovalRequest | null>(null);
   const [payload, setPayload] = useState<PinsApprovalPayload | null>(null);
   const [choices, setChoices] = useState<Record<number, number>>({});
   const [autoPost, setAutoPost] = useState(true);
@@ -64,54 +44,32 @@ function PinsApproval() {
   const [success, setSuccess] = useState<{ queued: number } | null>(null);
 
   useEffect(() => {
-    if (!approvalId) {
-      setError("Missing approvalId in URL");
-      setLoading(false);
-      return;
-    }
-    api
-      .getApproval(approvalId)
+    if (!approvalId) { setError("Missing approvalId"); setLoading(false); return; }
+    api.getApproval(approvalId)
       .then((a) => {
-        setApproval(a);
         const p = a.payload as PinsApprovalPayload;
         setPayload(p);
-        const initial: Record<number, number> = {};
-        p.pins.forEach((pin) => {
-          initial[pin.pinIndex] = 0;
-        });
-        setChoices(initial);
+        const init: Record<number, number> = {};
+        p.pins.forEach((pin) => { init[pin.pinIndex] = 0; });
+        setChoices(init);
       })
       .catch((e) => setError((e as Error).message))
       .finally(() => setLoading(false));
   }, [approvalId]);
 
   const totalPins = payload?.pins.length ?? 0;
-  const allChosen = useMemo(
-    () => totalPins > 0 && Object.keys(choices).length === totalPins,
-    [totalPins, choices],
-  );
-  const allUploaded = useMemo(
-    () =>
-      !!payload &&
-      payload.pins.length > 0 &&
-      payload.pins.every((p) => !!p.composedImageUrl),
-    [payload],
-  );
+  const allUploaded = useMemo(() => !!payload && payload.pins.length > 0 && payload.pins.every((p) => !!p.composedImageUrl), [payload]);
+  const allChosen = useMemo(() => totalPins > 0 && Object.keys(choices).length === totalPins, [totalPins, choices]);
 
   async function handleUpload(pinIndex: number, file: File) {
     if (!workflowRunId) return;
     setUploading(pinIndex);
-    setError(null);
     try {
       const { pin } = await api.uploadPin(workflowRunId, pinIndex, file);
-      setPayload((prev) =>
-        prev ? { ...prev, pins: prev.pins.map((p) => (p.pinIndex === pinIndex ? pin : p)) } : prev,
-      );
-      toast.success(`Pin #${pinIndex + 1} uploaded`);
+      setPayload((prev) => prev ? { ...prev, pins: prev.pins.map((p) => (p.pinIndex === pinIndex ? pin : p)) } : prev);
+      toast(`Pin #${pinIndex + 1} uploaded`);
     } catch (e) {
-      const msg = (e as Error).message;
-      setError(msg);
-      toast.error(msg);
+      toast((e as Error).message, "err");
     } finally {
       setUploading(null);
     }
@@ -120,18 +78,13 @@ function PinsApproval() {
   async function handleRegenerate(pinIndex: number) {
     if (!workflowRunId) return;
     setRegenerating(pinIndex);
-    setError(null);
     try {
       const { pin } = await api.regeneratePin(workflowRunId, pinIndex);
-      setPayload((prev) =>
-        prev ? { ...prev, pins: prev.pins.map((p) => (p.pinIndex === pinIndex ? pin : p)) } : prev,
-      );
+      setPayload((prev) => prev ? { ...prev, pins: prev.pins.map((p) => (p.pinIndex === pinIndex ? pin : p)) } : prev);
       setChoices((prev) => ({ ...prev, [pinIndex]: 0 }));
-      toast.success(`Regenerated copy for pin #${pinIndex + 1}`);
+      toast(`Regenerated copy for pin #${pinIndex + 1}`);
     } catch (e) {
-      const msg = (e as Error).message;
-      setError(msg);
-      toast.error(msg);
+      toast((e as Error).message, "err");
     } finally {
       setRegenerating(null);
     }
@@ -142,241 +95,203 @@ function PinsApproval() {
     setSubmitting(true);
     setError(null);
     try {
-      const decision = {
+      const result = await api.decidePins(workflowRunId, {
         autoPost,
         approvedPins: payload.pins.map((pin) => ({
           pinIndex: pin.pinIndex,
           chosenVariationIndex: choices[pin.pinIndex] ?? 0,
         })),
-      };
-      const result = await api.decidePins(workflowRunId, decision);
+      });
       setSuccess({ queued: result.queued.length });
-      toast.success(`${result.queued.length} pins queued`);
+      toast(`${result.queued.length} pins queued`);
     } catch (e) {
       const msg = (e as Error).message;
       setError(msg);
-      toast.error(msg);
-    } finally {
+      toast(msg, "err");
       setSubmitting(false);
     }
   }
 
-  if (loading) return <LoadingState />;
-  if (error && !payload) {
-    return (
-      <PageContainer size="wide">
-        <PageHeader title="Upload & review pins" backHref="/approvals" />
-        <Card className="border-destructive/40 bg-destructive/5">
-          <CardContent className="py-4 text-sm text-destructive">{error}</CardContent>
-        </Card>
-      </PageContainer>
-    );
-  }
-  if (!payload) {
-    return (
-      <PageContainer size="wide">
-        <PageHeader title="Upload & review pins" backHref="/approvals" />
-        <p className="text-sm text-muted-foreground">No pins payload.</p>
-      </PageContainer>
-    );
-  }
+  if (loading) return (
+    <div className="page-inner">
+      <div className="skeleton" style={{ height: 56, borderRadius: 12, marginBottom: 28 }} />
+      <div className="skeleton" style={{ width: 200, height: 48, marginBottom: 24 }} />
+      {[0, 1].map((i) => <div key={i} className="skeleton" style={{ height: 240, marginBottom: 12, borderRadius: 12 }} />)}
+    </div>
+  );
 
-  if (success) {
-    return (
-      <PageContainer size="wide">
-        <PageHeader title="Pins queued" backHref="/dashboard" backLabel="Dashboard" />
-        <Card>
-          <CardContent className="flex flex-col gap-4 py-6">
-            <div className="flex items-center gap-2 text-success">
-              <CheckCircle2 className="h-5 w-5" />
-              <span className="font-medium">
-                {success.queued} pins have been scheduled to board {payload.boardId}.
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild>
-                <a href="/calendar">View scheduled pins <ArrowRight className="h-4 w-4" /></a>
-              </Button>
-              <Button asChild variant="ghost">
-                <a href="/dashboard">Back to dashboard</a>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      </PageContainer>
-    );
-  }
+  if (success) return (
+    <div className="page-inner">
+      <div className="page-header">
+        <div className="page-eyebrow">Complete</div>
+        <h1 className="page-title">{success.queued} pins <em>queued</em></h1>
+      </div>
+      <div className="card" style={{ padding: 24 }}>
+        <div style={{ color: "var(--green)", fontFamily: "var(--font-serif)", fontSize: 18, marginBottom: 16 }}>
+          ✓ {success.queued} pins scheduled to board {payload?.boardId}
+        </div>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-primary" onClick={() => router.push("/calendar")}>View schedule →</button>
+          <button className="btn btn-ghost" onClick={() => router.push("/dashboard")}>Dashboard</button>
+        </div>
+      </div>
+    </div>
+  );
 
-  const unuploadedCount = payload.pins.filter((p) => !p.composedImageUrl).length;
-  const uploadedCount = totalPins - unuploadedCount;
+  if (!payload) return (
+    <div className="page-inner">
+      <div className="state"><div className="mk">!</div><h3>No pins payload</h3><p>{error}</p></div>
+    </div>
+  );
+
+  const uploadedCount = payload.pins.filter((p) => !!p.composedImageUrl).length;
 
   return (
-    <PageContainer size="wide">
-      <PageHeader
-        title="Upload & review pins"
-        description="Design each pin in Canva and upload the PNG/JPG. Pick a title/description variation per pin. Regenerate copy if Claude's text needs another shot."
-        backHref="/approvals"
-        actions={
-          <Badge variant={allUploaded ? "success" : "secondary"}>
-            {uploadedCount}/{totalPins} uploaded
-          </Badge>
-        }
-      />
+    <div className="page-inner">
+      <StageRail current="/approvals/pins" runId={workflowRunId} />
 
-      <div className="flex flex-col gap-4">
+      <div className="page-header">
+        <div className="page-eyebrow">Stage 5 of 6</div>
+        <h1 className="page-title">Upload <em>pins</em></h1>
+        <div className="page-sub">Design each pin in Canva and upload the PNG/JPG. Pick a copy variation per pin.</div>
+      </div>
+
+      {error && <div style={{ padding: "12px 16px", background: "var(--red-soft)", color: "var(--red)", borderRadius: 10, marginBottom: 20, fontSize: 13 }}>{error}</div>}
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <div className="section-label">Composed pins</div>
+        <span className={`chip ${allUploaded ? "good" : "plain"}`}>{uploadedCount}/{totalPins} uploaded</span>
+      </div>
+
+      <div style={{ marginBottom: 24 }}>
         {payload.pins.map((pin) => {
           const uploaded = !!pin.composedImageUrl;
           const isUploading = uploading === pin.pinIndex;
-          const isRegenerating = regenerating === pin.pinIndex;
+          const isRegen = regenerating === pin.pinIndex;
           return (
-            <Card key={pin.pinIndex}>
-              <CardContent className="flex flex-col gap-4 py-5 md:flex-row">
-                <div className="flex flex-col gap-2 md:w-[240px] md:shrink-0">
-                  {uploaded ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={pin.composedImageUrl}
-                      alt={`pin ${pin.pinIndex}`}
-                      className="aspect-[2/3] w-full rounded-lg border border-border object-cover"
-                    />
-                  ) : (
-                    <div className="flex aspect-[2/3] w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-border bg-muted/30 text-muted-foreground">
-                      <ImagePlus className="h-6 w-6" />
-                      <span className="text-xs">Not uploaded</span>
-                    </div>
-                  )}
-                  <PinFileInput
+            <div key={pin.pinIndex} className="pin-slot">
+              <div className="pin-layout">
+                <div>
+                  <PinDropZone
+                    imageUrl={pin.composedImageUrl}
                     pinIndex={pin.pinIndex}
                     onFile={(f) => handleUpload(pin.pinIndex, f)}
-                    disabled={isUploading || submitting || isRegenerating}
-                    label={uploaded ? "Replace pin" : "Upload composed pin"}
+                    disabled={isUploading || submitting || isRegen}
+                    uploading={isUploading}
                   />
-                  {isUploading && (
-                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Uploading…
-                    </span>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleRegenerate(pin.pinIndex)}
-                    disabled={regenerating !== null || submitting || isUploading}
-                  >
-                    {isRegenerating ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    )}
-                    {isRegenerating ? "Regenerating…" : "Regenerate copy"}
-                  </Button>
-                </div>
-
-                <div className="flex flex-1 flex-col gap-3">
-                  <h3 className="text-base font-semibold">Pin #{pin.pinIndex + 1}</h3>
-                  <div className="flex flex-col gap-2">
-                    {pin.variations.map((v, idx) => {
-                      const picked = choices[pin.pinIndex] === idx;
-                      return (
-                        <button
-                          key={idx}
-                          type="button"
-                          onClick={() => setChoices((prev) => ({ ...prev, [pin.pinIndex]: idx }))}
-                          aria-pressed={picked}
-                          className={`rounded-lg border p-3 text-left transition-colors ${
-                            picked ? "border-primary bg-primary/5" : "border-border hover:bg-accent/40"
-                          }`}
-                        >
-                          <div className="text-sm font-semibold">{v.title}</div>
-                          <div className="mt-1 text-xs text-muted-foreground">{v.description}</div>
-                        </button>
-                      );
-                    })}
+                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                    <button
+                      type="button"
+                      className="btn btn-ghost"
+                      style={{ fontSize: 12, padding: "5px 10px" }}
+                      onClick={() => handleRegenerate(pin.pinIndex)}
+                      disabled={isRegen || submitting || isUploading}
+                    >
+                      {isRegen ? "Regenerating…" : <><RefreshIcon /> Regenerate copy</>}
+                    </button>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+
+                <div>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--ink-muted)", marginBottom: 10 }}>
+                    Pin #{pin.pinIndex + 1} · choose variation
+                  </div>
+                  {pin.variations.map((v, idx) => {
+                    const picked = choices[pin.pinIndex] === idx;
+                    return (
+                      <button
+                        key={idx}
+                        type="button"
+                        className={`copy-variation ${picked ? "selected" : ""}`}
+                        onClick={() => setChoices((prev) => ({ ...prev, [pin.pinIndex]: idx }))}
+                      >
+                        <div className="v-num">Variation {idx + 1}</div>
+                        <div className="v-text">{v.title}</div>
+                        <div style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: 13, color: "var(--ink-muted)", marginTop: 4 }}>{v.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {!uploaded && (
+                <div style={{ marginTop: 10, fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--accent-ink)", background: "var(--accent-soft)", padding: "6px 10px", borderRadius: 6 }}>
+                  Upload a composed image to continue
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
 
-      <div className="mt-6 flex items-center gap-2">
-        <Switch id="autopost" checked={autoPost} onCheckedChange={setAutoPost} />
-        <Label htmlFor="autopost" className="cursor-pointer">
-          Auto-schedule to best times (uses analytics slots)
-        </Label>
+      <div style={{ marginBottom: 80 }}>
+        <label className="switch" style={{ cursor: "pointer" }}>
+          <button
+            type="button"
+            className={`toggle ${autoPost ? "on" : ""}`}
+            onClick={() => setAutoPost((v) => !v)}
+            aria-pressed={autoPost}
+          />
+          <span style={{ fontSize: 13 }}>Auto-schedule to best times (uses analytics slots)</span>
+        </label>
       </div>
 
-      {error && <p className="mt-4 text-sm text-destructive">{error}</p>}
-
-      {!allUploaded && (
-        <p className="mt-2 text-sm text-warning">
-          {unuploadedCount} pin{unuploadedCount === 1 ? "" : "s"} still need{unuploadedCount === 1 ? "s" : ""} an uploaded image.
-        </p>
-      )}
-
-      <div className="mt-4 flex flex-wrap gap-3">
-        <Button
-          size="lg"
-          variant="success"
-          onClick={handleSubmit}
-          disabled={
-            !allChosen || !allUploaded || submitting || regenerating !== null || uploading !== null
-          }
-        >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-          {submitting ? "Scheduling…" : `Schedule ${totalPins} pin${totalPins === 1 ? "" : "s"}`}
-        </Button>
-        <Button size="lg" variant="ghost" onClick={() => router.push("/dashboard")}>
-          Cancel
-        </Button>
-      </div>
-
-      {approval && (
-        <p className="mt-6 text-xs text-muted-foreground">
-          Board {payload.boardId} · Approval {approval.id} · status {approval.status}
-        </p>
-      )}
-    </PageContainer>
+      <ActionBar
+        onApprove={handleSubmit}
+        approveLabel={`Schedule ${totalPins} pin${totalPins !== 1 ? "s" : ""}`}
+        onBack="/approvals"
+        metaText={`Board ${payload.boardId}`}
+        disabled={!allChosen || !allUploaded || regenerating !== null || uploading !== null}
+        loading={submitting}
+      />
+    </div>
   );
 }
 
-function PinFileInput({
+function PinDropZone({
+  imageUrl,
   pinIndex,
   onFile,
   disabled,
-  label,
+  uploading,
 }: {
+  imageUrl: string;
   pinIndex: number;
-  onFile: (file: File) => void;
+  onFile: (f: File) => void;
   disabled: boolean;
-  label: string;
+  uploading: boolean;
 }) {
   const ref = useRef<HTMLInputElement>(null);
+  const hasImg = !!imageUrl;
   return (
     <>
       <input
         ref={ref}
         type="file"
         accept="image/png,image/jpeg,image/webp"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) onFile(f);
-          e.target.value = "";
-        }}
+        style={{ display: "none" }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }}
       />
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={() => ref.current?.click()}
-        disabled={disabled}
-        aria-label={`upload pin ${pinIndex}`}
+      <div
+        className={`pin-drop ${hasImg ? "has-image" : ""}`}
+        onClick={() => !disabled && ref.current?.click()}
       >
-        <Upload className="h-3.5 w-3.5" />
-        {label}
-      </Button>
+        {hasImg ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt={`pin ${pinIndex}`} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: 10 }} />
+        ) : (
+          <>
+            <div className="icon-big">P</div>
+            <div className="lbl">{uploading ? "Uploading…" : "Upload composed pin"}</div>
+            <div className="sub-lbl">PNG · JPG · WEBP</div>
+          </>
+        )}
+      </div>
+      {hasImg && (
+        <button type="button" className="btn btn-ghost" style={{ fontSize: 12, padding: "5px 10px", marginTop: 6, width: "100%", justifyContent: "center" }} disabled={disabled} onClick={() => ref.current?.click()}>
+          <UploadIcon /> Replace image
+        </button>
+      )}
     </>
   );
 }

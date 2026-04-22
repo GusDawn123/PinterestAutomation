@@ -1,16 +1,5 @@
 "use client";
 
-import * as React from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
-import { Button } from "./ui/button";
-
 export function ConfirmDialog({
   open,
   onOpenChange,
@@ -32,26 +21,29 @@ export function ConfirmDialog({
   onConfirm: () => void | Promise<void>;
   confirming?: boolean;
 }) {
+  if (!open) return null;
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          {description && <DialogDescription>{description}</DialogDescription>}
-        </DialogHeader>
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={confirming}>
+    <div
+      className="aff-modal-wrap"
+      onClick={(e) => { if (e.target === e.currentTarget && !confirming) onOpenChange(false); }}
+    >
+      <div className="aff-modal">
+        <div style={{ fontFamily: "var(--font-serif)", fontSize: 22, marginBottom: 6 }}>{title}</div>
+        {description && <div style={{ fontSize: 13, color: "var(--ink-muted)", marginBottom: 18, lineHeight: 1.5 }}>{description}</div>}
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button type="button" className="btn btn-ghost" onClick={() => onOpenChange(false)} disabled={confirming}>
             {cancelLabel}
-          </Button>
-          <Button
-            variant={destructive ? "destructive" : "default"}
+          </button>
+          <button
+            type="button"
+            className={`btn ${destructive ? "btn-danger" : "btn-primary"}`}
             onClick={onConfirm}
             disabled={confirming}
           >
             {confirming ? "Working…" : confirmLabel}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
